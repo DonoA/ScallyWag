@@ -1,13 +1,14 @@
 <HTML>
-<% var help = "ok" %>
-<TITLE><%= title %></TITLE>
-<% if( help != "dat" ){ %>
-    <BODY>
-    <p>Sample data</p>
-    <%# just ignore this %>
-    <p>Sample data</p>
-    </BODY>
-<% }else{ %>
-    <p>real data</p>
-<% } %>
+    <TITLE><%= title %></TITLE>
+    <% if( person != "david" ){ %>
+        <BODY>
+            <p>Sample data</p>
+            <%# just ignore this %>
+            <p>Sample data: <%= task %></p>
+        </BODY>
+    <% }else{ %>
+        <% for(var i = 0; i < 3; i++){ %>
+            <p>real data: <%= task %></p>
+        <% } %>
+    <% } %>
 </HTML>
