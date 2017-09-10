@@ -44,22 +44,17 @@ object SampleApp {
 
     def main(args: Array[String]) {
 
-        ScalaSequel.establishConnection("localhost", "root", "root", "scallywag", 3306)
+        ScalaSequel.establishConnection("root", "root", "scallywag", drop = true)
 
         ScalaSequel.registerSequelType(Job, classOf[Job])
         ScalaSequel.registerSequelType(Person, classOf[Person])
         val tom = new Person("Tom")
-        val tomsJob = new Job("Developer")
-        tom.job := tomsJob
-        println(tomsJob.worker.get())
-//        tom.create()
-//        tomsJob.create()
-//        tom.job := tomsJob
-//        tom.update()
-//        val theSame = BasicData.find(1)
-//
-//        println(theSame)
-        
+        tom.job := new Job("Developer")
+        tom.create()
+        val stillTom = Person.find(1)
+        println(stillTom)
+        println(stillTom.job.get)
+
 //        val app = new ScalaServerApplication()
 //        app.bind(8998)
 //        app.setViewRenderEngine(ScalaEjsViewer)

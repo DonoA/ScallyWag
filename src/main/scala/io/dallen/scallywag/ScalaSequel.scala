@@ -1,8 +1,9 @@
 package io.dallen.scallywag
 
 import java.lang.reflect.{Field, Method}
-import java.sql.{Connection, Date, DriverManager}
+import java.sql.{Connection, Date, DriverManager, ResultSet}
 
+import io.dallen.scallywag.Relations.BelongsTo
 import io.dallen.scallywag.ScalaSequel.SequelData
 
 import scala.annotation.meta.field
@@ -14,7 +15,8 @@ import scala.reflect.runtime.universe._
 
 object ScalaSequel {
 
-    type FieldMap = mutable.HashMap[String, (mutable.HashMap[String, String], Class[_])]
+    case class FieldInfo(annoInfo: mutable.HashMap[String, String], fieldClass: Class[_],
+                         relationInfo: Option[(TermSymbol, Class[_])])
 
     var conn: Connection = _
 
@@ -24,9 +26,13 @@ object ScalaSequel {
 
     case class ColumnDef(var name: String, var value: String)
 
-    def establishConnection(host: String, user: String, pass: String, db: String, port: Int): Unit = {
+    var dropAll = false
+
+    def establishConnection(user: String, pass: String, db: String, port: Int = 3306,
+                            host: String = "localhost", drop: Boolean = false): Unit = {
         Class.forName("com.mysql.jdbc.Driver")
         conn = DriverManager.getConnection(s"jdbc:mysql://$host:$port/$db?autoReconnect=true&useSSL=false",user,pass)
+        dropAll = drop
     }
 
     abstract class SequelType[T <: SequelData](table: String) {
@@ -35,28 +41,42 @@ object ScalaSequel {
 
         var dataClass: Class[T] = _
 
-        val fields = new FieldMap()
+        val fields = new mutable.HashMap[String, FieldInfo]()
 
         val columns = new mutable.HashMap[String, ColumnDef]()
 
         def getTable = table
 
-        var createNullInstance: () => T = _
-
         def find(id: Int): T = {
             val stmt = conn.createStatement()
             val rs = stmt.executeQuery(s"SELECT * FROM $table WHERE $idCol = $id")
             rs.next()
-            val ninst = createNullInstance.apply()
-            fields.foreach(e => {
-                val (name, f) = e
-                val (info, dtype) = f
-                if(locateSetter(dataClass, name, dtype).isEmpty) {
-                    println(name + " : " + dtype.getName)
+            val ninst = instanciateNull(dataClass)
+            fields.foreach(entry => {
+                val (name, fieldInfo) = entry
+                fieldInfo.fieldClass match {
+                    case c if c == classOf[Relations.HasOne[_]] && fieldInfo.relationInfo.isDefined => {
+                        val foreignSchem = schemaByDataClassName(fieldInfo.relationInfo.get._2.getName)
+                        val forgienColumn = ninst.getClass.getSimpleName+"_id"
+                        val selectStatment = s"SELECT ${foreignSchem.idCol} " +
+                            s"FROM ${foreignSchem.getTable} " +
+                            s"WHERE $forgienColumn = ${rs.getInt(idCol)}"
+                        println("Exec: " + selectStatment)
+                        val foreignObject = stmt.executeQuery(selectStatment)
+                        foreignObject.next
+                        val other = instanciateNull(foreignSchem.dataClass).asInstanceOf[SequelData]
+                        other.id = Some(foreignObject.getInt(foreignSchem.idCol))
+                        dataClass.getMethod(name).invoke(ninst).asInstanceOf[Relations.HasOne[_]].data = Some(other)
+                    }
+                    case _ => locateSetter(dataClass, name, fieldInfo.fieldClass).get.invoke(ninst, rs.getObject(name))
                 }
-                locateSetter(dataClass, name, dtype).get.invoke(ninst, rs.getObject(name))
             })
             return ninst
+        }
+
+        def where(where: String): ResultSet = {
+            val rs = conn.createStatement().executeQuery(s"SELECT * FROM $table WHERE $where")
+            return rs
         }
 
         def insert(dt: SequelData): Unit = {
@@ -64,11 +84,10 @@ object ScalaSequel {
             val toInsert = mutable.HashMap[String, String]()
             columns.foreach(e => {
                 val (fname, col) = e
-                val f = dataClass.getField(fname)
-                val rtn = f.get(data)
-                toInsert(col.name) = (rtn match {
-                    case _: String => "\"" + rtn + "\""
-                    case data1: SequelData => data1.id
+                val f = dataClass.getMethod(fname).invoke(data)
+                toInsert(col.name) = (f match {
+                    case _: String => "\"" + f + "\""
+                    case bt: Relations.BelongsTo[_] => bt.get().id.get
                     case a => a
                 }).toString
             })
@@ -82,15 +101,37 @@ object ScalaSequel {
             strBldr.append(")")
             println(s"Exec: ${strBldr.mkString}")
             conn.createStatement().execute(strBldr.mkString)
+            val rs = conn.createStatement().executeQuery("SELECT LAST_INSERT_ID();")
+            rs.next
+            dt.id = Some(rs.getInt(1))
+            fields.foreach(e => {
+                val (fname, t) = e
+                val f = dataClass.getMethod(fname).invoke(data)
+                f match {
+                    case bt: Relations.HasOne[_] => {
+                        if(bt.get.id.isEmpty){
+                            bt.get.create()
+                        }
+                    }
+                    case bt: Relations.HasMany[_] => {
+                        bt.get().foreach(d => {
+                            if(d.id.isEmpty){
+                                d.create()
+                            }
+                        })
+                    }
+                    case _ =>
+                }
+            })
         }
     }
 
     abstract class SequelData {
 
-        var id: Int = _
+        var id: Option[Int] = None
 
-        var date_created: Date = _
-        var date_updated: Date = _
+        var date_created: Option[Date] = None
+        var date_updated: Option[Date] = None
 
 //        def destroy(): Unit = {
 //
@@ -102,6 +143,11 @@ object ScalaSequel {
     }
 
     def registerSequelType[T <: SequelData](typeScheme: SequelType[T], dataClass: Class[T]): Unit = {
+        if(dropAll) {
+            val drop = s"DROP TABLE ${typeScheme.getTable}"
+            println(s"Exec: $drop")
+            conn.createStatement().execute(drop)
+        }
         typeScheme.dataClass = dataClass
         schemaByDataClassName(dataClass.getName) = typeScheme
         val tblCreateStr = new mutable.StringBuilder()
@@ -113,6 +159,7 @@ object ScalaSequel {
             foundAny = true
             val col = ColumnDef(m.name.toString.replace(" ",""), "")
             var shouldInsert = true
+            var foreignRelation: Option[(TermSymbol, Class[_])] = None
             relationClass match {
                 case c if c == classOf[Relations.HasOne[_]] => {
                     if (!m.isVal) {
@@ -120,8 +167,6 @@ object ScalaSequel {
                     }
                     shouldInsert = false
                     val foreignClass = runtimeMirror(c.getClassLoader).runtimeClass(m.typeSignature.typeArgs.head)
-                    println("f class " + foreignClass.getName)
-                    var foreignRelation: Option[(TermSymbol, Class[_])] = None
                     if(annoInfo.contains(SqlOps.foreignKey)){
                         searchSequelFields(foreignClass, (nm, nanno, nannoInfo, inRtClss) => {
                             if(nm.typeSignature.typeArgs.nonEmpty) {
@@ -153,7 +198,7 @@ object ScalaSequel {
                                                 throw new UnsupportedOperationException(
                                                     s"Many possible belongs for ${col.name}")
                                             }
-                                            foreignRelation = Some((nm, foreignRelationType))
+                                            foreignRelation = Some((nm, foreignClass))
                                         }
                                         case _ => {}
                                     }
@@ -162,12 +207,10 @@ object ScalaSequel {
                         })
                     }
                     if(foreignRelation.isDefined){
-                        println(s"Placed foreign relation for ${dataClass.getName} - ${col.name} to ${foreignRelation.get._1.name.toString}")
                         relationMapping((dataClass, foreignClass)) =
                             (dataClass.getMethod(col.name),
                                 foreignClass.getMethod(foreignRelation.get._1.name.toString.replace(" ", "")))
                     }
-                    println("detected has one relation")
                 }
                 case c if c == classOf[Relations.HasMany[_]] => {
                     if (!m.isVal) {
@@ -182,9 +225,9 @@ object ScalaSequel {
                     if (!m.isVal) {
                         throw new UnsupportedOperationException(s"${m.name.toString} must be val")
                     }
-                    col.name = col.name + "_id"
+                    val rtclss = runtimeMirror(c.getClassLoader).runtimeClass(m.typeSignature.typeArgs.head)
+                    col.name = rtclss.getSimpleName + "_id"
                     col.value = "int"
-                    println("detected belong one relation")
                 }
                 case c if c == classOf[Relations.BelongsToMany[_, _]] => {
                     if (!m.isVal) {
@@ -209,9 +252,9 @@ object ScalaSequel {
             if(annoInfo.contains("sqlType")){
                 col.value = annoInfo("sqlType")
             }
-            //                    typeScheme.fields(col.name) = (fieldMap, runtimeClass)
+            typeScheme.fields(m.name.toString.replace(" ", "")) = FieldInfo(annoInfo, relationClass, foreignRelation)
             if(shouldInsert) {
-                typeScheme.columns(m.name.toString) = col
+                typeScheme.columns(m.name.toString.replace(" ", "")) = col
                 tableFields += s"${col.name} ${col.value}"
             }
         })
@@ -222,24 +265,14 @@ object ScalaSequel {
         tblCreateStr.append(tableFields.mkString(", ") + ")")
         println(s"Exec: ${tblCreateStr.mkString}")
 
-//        try {
-//            conn.createStatement().execute(tblCreateStr.mkString)
-//        }catch{
-//            case _: Exception => println("Table already exists")
-//        }
-//
-//        val defConstructor = dataClass.getConstructors.head
-//        println("Num params for const: " + defConstructor.getParameterCount)
-//        var nullParams = Seq[Object]()
-//        for(_ <- 1 to defConstructor.getParameterCount){
-//            nullParams = nullParams :+ null
-//        }
-//        typeScheme.createNullInstance = () => defConstructor.newInstance(nullParams:_*).asInstanceOf[T]
+        try {
+            conn.createStatement().execute(tblCreateStr.mkString)
+        }catch{
+            case _: Exception => println("Table already exists")
+        }
     }
 
-//    private def createHasOneRelation()
-
-    def searchSequelFields(clz: Class[_], fn: (TermSymbol, Annotation, mutable.Map[String, String], Class[_]) => Unit): Unit = {
+    def searchSequelFields(clz: Class[_], fn: (TermSymbol, Annotation, mutable.HashMap[String, String], Class[_]) => Unit): Unit = {
         val dataClassMirror: universe.Mirror = runtimeMirror(clz.getClassLoader)
         val clazz = dataClassMirror.classSymbol(clz)
         clazz.toType.members.collect {
@@ -248,7 +281,7 @@ object ScalaSequel {
                 if (anno.isDefined) {
                     val runtimeClass: Class[_] =
                         dataClassMirror.runtimeClass(m.typeSignature.typeSymbol.asClass)
-                    val fieldMap: mutable.Map[String, String] = parseAnnotationArgs(anno.get)
+                    val fieldMap: mutable.HashMap[String, String] = parseAnnotationArgs(anno.get)
                     fn(m, anno.get, fieldMap, runtimeClass)
                 }
             }
@@ -317,16 +350,16 @@ object Relations {
 
     case class HasOne[T <: SequelData](caller: SequelData) extends Has {
 
-        var data: T = _
+        var data: Option[SequelData] = None
 
         def isLoaded(): Boolean = {
             return false
         }
 
-        def get(): T = data
+        def get: T = data.get.asInstanceOf[T]
 
         def set(dt: T): Unit = {
-            data = dt
+            data = Some(dt)
             if(ScalaSequel.relationMapping.contains((caller.getClass, dt.getClass))){
                 ScalaSequel.relationMapping(caller.getClass, dt.getClass)._2.invoke(dt) match {
                     case bt: BelongsTo[_] => bt.data = caller
@@ -338,18 +371,21 @@ object Relations {
         def :=(ndat: T): Unit = set(ndat)
     }
 
-    case class HasMany[T <: SequelData](caller: SequelData) extends mutable.ArrayBuffer[T]() with Has {
+    case class HasMany[T <: SequelData](caller: SequelData) extends Has {
 
-        var partner: Option[Belongs] = None
+        var data = new mutable.ArrayBuffer[SequelData]()
 
         def this(caller: SequelData, data: T*) {
             this(caller)
-            this ++= data
+            this.data ++= data
         }
 
         def isLoaded(): Boolean = {
             return false
         }
+
+        def get(): mutable.ArrayBuffer[T] = data.asInstanceOf[mutable.ArrayBuffer[T]]
+
     }
 
     case class BelongsTo[T <: SequelData](caller: SequelData) extends Belongs {
