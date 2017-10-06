@@ -24,23 +24,31 @@ object SampleApp {
         resp.renderView("404", immutable.HashMap[String, Object]())
     }
 
-    object Job extends ScalaSequel.SequelType[Job]("Job") {
+    object Job extends ScalaSequel.SequelType[Job]("Job")
 
-    }
-
-    object Person extends ScalaSequel.SequelType[Person]("Person") {
-
-    }
+    object Person extends ScalaSequel.SequelType[Person]("Person")
 
     case class Person(@SequelField var name: String) extends ScalaSequel.SequelData {
-        @SequelField
+        @SequelField(
+//            ("foreignKey", "worker")
+        )
         val job = Relations.HasOne[Job](this)
     }
 
-    case class Job(@SequelField var title: String) extends ScalaSequel.SequelData {
-        @SequelField
-        val worker = Relations.BelongsTo[Person](this)
+    case class PersonJob() extends ScalaSequel.SequelData {
+        @SequelField()
+        val person = Relations.BelongsTo[Person](this)
+        @SequelField()
+        val job = Relations.BelongsTo[Job](this)
     }
+
+    case class Job(@SequelField var title: String) extends ScalaSequel.SequelData {
+        @SequelField(
+//            ("column", "worker")
+        )
+        val worker = Relations.BelongsToMany[Person, PersonJob](this)
+    }
+
 
     def main(args: Array[String]) {
 
@@ -48,12 +56,21 @@ object SampleApp {
 
         ScalaSequel.registerSequelType(Job, classOf[Job])
         ScalaSequel.registerSequelType(Person, classOf[Person])
+        ScalaSequel.registerThroughClass(classOf[PersonJob], classOf[Job], classOf[Person])
+        val dev = new Job("Developer")
         val tom = new Person("Tom")
-        tom.job := new Job("Developer")
+        val bill = new Person("Bill")
+        tom.job.set(dev)
+        bill.job.set(dev)
+//        tom.jobs += new Job("Developer")
+//        tom.jobs += new Job("Slave")
         tom.create()
-        val stillTom = Person.find(1)
-        println(stillTom)
-        println(stillTom.job.get)
+        bill.create()
+
+//        val stillTom = Person.find(1)
+//        println(stillTom)
+//        stillTom.jobs.load()
+//        println(stillTom.jobs.get)
 
 //        val app = new ScalaServerApplication()
 //        app.bind(8998)

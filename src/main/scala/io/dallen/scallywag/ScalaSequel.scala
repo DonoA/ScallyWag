@@ -1,9 +1,8 @@
 package io.dallen.scallywag
 
-import java.lang.reflect.{Field, Method}
+import java.lang.reflect.Method
 import java.sql.{Connection, Date, DriverManager, ResultSet}
 
-import io.dallen.scallywag.Relations.BelongsTo
 import io.dallen.scallywag.ScalaSequel.SequelData
 
 import scala.annotation.meta.field
@@ -17,6 +16,8 @@ object ScalaSequel {
 
     case class FieldInfo(annoInfo: mutable.HashMap[String, String], fieldClass: Class[_],
                          relationInfo: Option[(TermSymbol, Class[_])])
+
+    type methodParseFunc = (TermSymbol, Annotation, mutable.HashMap[String, String], Class[_]) => Unit
 
     var conn: Connection = _
 
@@ -48,8 +49,9 @@ object ScalaSequel {
         def getTable = table
 
         def find(id: Int): T = {
-            val stmt = conn.createStatement()
-            val rs = stmt.executeQuery(s"SELECT * FROM $table WHERE $idCol = $id")
+            val query = s"SELECT * FROM $table WHERE $idCol = $id"
+            println(s"Exec: $query")
+            val rs = conn.createStatement.executeQuery(query)
             rs.next()
             val ninst = instanciateNull(dataClass)
             fields.foreach(entry => {
@@ -57,21 +59,46 @@ object ScalaSequel {
                 fieldInfo.fieldClass match {
                     case c if c == classOf[Relations.HasOne[_]] && fieldInfo.relationInfo.isDefined => {
                         val foreignSchem = schemaByDataClassName(fieldInfo.relationInfo.get._2.getName)
-                        val forgienColumn = ninst.getClass.getSimpleName+"_id"
-                        val selectStatment = s"SELECT ${foreignSchem.idCol} " +
-                            s"FROM ${foreignSchem.getTable} " +
-                            s"WHERE $forgienColumn = ${rs.getInt(idCol)}"
-                        println("Exec: " + selectStatment)
-                        val foreignObject = stmt.executeQuery(selectStatment)
-                        foreignObject.next
+                        val foreignObject = findRelated(ninst, foreignSchem, rs.getInt(idCol), fieldInfo.annoInfo)
+                        foreignObject.next()
                         val other = instanciateNull(foreignSchem.dataClass).asInstanceOf[SequelData]
                         other.id = Some(foreignObject.getInt(foreignSchem.idCol))
                         dataClass.getMethod(name).invoke(ninst).asInstanceOf[Relations.HasOne[_]].data = Some(other)
                     }
-                    case _ => locateSetter(dataClass, name, fieldInfo.fieldClass).get.invoke(ninst, rs.getObject(name))
+                    case c if c == classOf[Relations.HasMany[_]] && fieldInfo.relationInfo.isDefined => {
+                        val foreignSchem = schemaByDataClassName(fieldInfo.relationInfo.get._2.getName)
+                        val foreignObject = findRelated(ninst, foreignSchem, rs.getInt(idCol), fieldInfo.annoInfo)
+                        while(foreignObject.next()) {
+                            val other = instanciateNull(foreignSchem.dataClass).asInstanceOf[SequelData]
+                            other.id = Some(foreignObject.getInt(foreignSchem.idCol))
+                            dataClass.getMethod(name).invoke(ninst).asInstanceOf[Relations.HasMany[_]].data += other
+                        }
+                    }
+                    case c if c == classOf[Relations.BelongsTo[_]] => {
+                        // This relation is not automatically loaded
+//                        println(s"assign belongs, ${fieldInfo.relationInfo.isDefined}")
+                    }
+                    case c if c == classOf[Relations.BelongsToMany[_, _]] => {
+                        // This relation is not automatically loaded
+//                        println("assign belongs to many")
+                    }
+                    case c => locateSetter(dataClass, name, fieldInfo.fieldClass).get.invoke(ninst, rs.getObject(name))
                 }
             })
             return ninst
+        }
+
+        private def findRelated(ninst: T, foreignSchem:  SequelType[_], lid: Int,
+                                annoInfo: mutable.HashMap[String, String]): ResultSet = {
+            var foreignColumn = ninst.getClass.getSimpleName + "_id"
+            if(annoInfo.contains(SqlOps.foreignKey)){
+                foreignColumn = annoInfo(SqlOps.foreignKey)
+            }
+            val selectStatment = s"SELECT ${foreignSchem.idCol} " +
+                s"FROM ${foreignSchem.getTable} " +
+                s"WHERE $foreignColumn = $lid"
+            println("Exec: " + selectStatment)
+            return conn.createStatement.executeQuery(selectStatment)
         }
 
         def where(where: String): ResultSet = {
@@ -146,7 +173,11 @@ object ScalaSequel {
         if(dropAll) {
             val drop = s"DROP TABLE ${typeScheme.getTable}"
             println(s"Exec: $drop")
-            conn.createStatement().execute(drop)
+            try {
+                conn.createStatement().execute(drop)
+            }catch{
+                case _: Exception => {}
+            }
         }
         typeScheme.dataClass = dataClass
         schemaByDataClassName(dataClass.getName) = typeScheme
@@ -161,37 +192,36 @@ object ScalaSequel {
             var shouldInsert = true
             var foreignRelation: Option[(TermSymbol, Class[_])] = None
             relationClass match {
-                case c if c == classOf[Relations.HasOne[_]] => {
+                case c if c == classOf[Relations.HasOne[_]] || c == classOf[Relations.HasMany[_]] => {
                     if (!m.isVal) {
                         throw new UnsupportedOperationException(s"${m.name.toString} must be val")
                     }
                     shouldInsert = false
                     val foreignClass = runtimeMirror(c.getClassLoader).runtimeClass(m.typeSignature.typeArgs.head)
-                    if(annoInfo.contains(SqlOps.foreignKey)){
-                        searchSequelFields(foreignClass, (nm, nanno, nannoInfo, inRtClss) => {
-                            if(nm.typeSignature.typeArgs.nonEmpty) {
-                                val belongsType = runtimeMirror(inRtClss.getClassLoader)
-                                    .runtimeClass(nm.typeSignature.typeArgs.head)
-                                if (belongsType == dataClass && nannoInfo.contains(SqlOps.foreignKey) &&
-                                    nannoInfo(SqlOps.foreignKey).equals(annoInfo(SqlOps.foreignKey))) {
+                    searchSequelFields(foreignClass, (nm, nanno, nannoInfo, inRtClss) => {
+                        if(nm.typeSignature.typeArgs.nonEmpty) {
+                            val belongsType = runtimeMirror(inRtClss.getClassLoader)
+                                .runtimeClass(nm.typeSignature.typeArgs.head)
+                            if(annoInfo.contains(SqlOps.foreignKey)) {
+                                if (belongsType == dataClass && ((nannoInfo.contains(SqlOps.column) &&
+                                    nannoInfo(SqlOps.column).equals(annoInfo(SqlOps.foreignKey))) ||
+                                    annoInfo(SqlOps.foreignKey)
+                                        .equals(belongsType.getSimpleName.replace(" ", "") + "_id"))) {
                                     inRtClss match {
-                                        case nc if nc == classOf[Relations.BelongsTo[_]] => {
-
+                                        case nc if nc == classOf[Relations.BelongsTo[_]] ||
+                                            nc == classOf[Relations.BelongsToMany[_, _]] => {
+                                            if (foreignRelation.isDefined) {
+                                                throw new UnsupportedOperationException(
+                                                    s"Many possible belongs for ${col.name}")
+                                            }
+                                            foreignRelation = Some((nm, foreignClass))
                                         }
-                                        case nc if nc == classOf[Relations.BelongsToMany[_, _]] => {
-
-                                        }
+                                        case _ => {}
                                     }
                                 }
-                            }
-                        })
-                    }else{
-                        searchSequelFields(foreignClass, (nm, nanno, nannoInfo, foreignRelationType) => {
-                            if(nm.typeSignature.typeArgs.nonEmpty) {
-                                val belongsType = runtimeMirror(foreignRelationType.getClassLoader)
-                                    .runtimeClass(nm.typeSignature.typeArgs.head)
+                            }else{
                                 if (belongsType == dataClass) {
-                                    foreignRelationType match {
+                                    inRtClss match {
                                         case nc if nc == classOf[Relations.BelongsTo[_]] ||
                                             nc == classOf[Relations.BelongsToMany[_, _]] => {
                                             if (foreignRelation.isDefined) {
@@ -204,22 +234,13 @@ object ScalaSequel {
                                     }
                                 }
                             }
-                        })
-                    }
+                        }
+                    })
                     if(foreignRelation.isDefined){
                         relationMapping((dataClass, foreignClass)) =
                             (dataClass.getMethod(col.name),
                                 foreignClass.getMethod(foreignRelation.get._1.name.toString.replace(" ", "")))
                     }
-                }
-                case c if c == classOf[Relations.HasMany[_]] => {
-                    if (!m.isVal) {
-                        throw new UnsupportedOperationException(s"${m.name.toString} must be val")
-                    }
-                    shouldInsert = false
-                    val rtclss = runtimeMirror(c.getClassLoader).runtimeClass(m.typeSignature.typeArgs.head)
-
-                    println("Detected many relation")
                 }
                 case c if c == classOf[Relations.BelongsTo[_]] => {
                     if (!m.isVal) {
@@ -234,7 +255,6 @@ object ScalaSequel {
                         throw new UnsupportedOperationException(s"${m.name.toString} must be val")
                     }
                     shouldInsert = false
-                    val rtclss = runtimeMirror(c.getClassLoader).runtimeClass(m.typeSignature.typeArgs.head)
                     val throughclss =
                         runtimeMirror(c.getClassLoader).runtimeClass(m.typeSignature.typeArgs.last)
                     col.name = throughclss.getSimpleName + "_id"
@@ -246,11 +266,11 @@ object ScalaSequel {
                 case typ => throw new UnsupportedOperationException(
                     s"Could not find sql type for ${m.name.toString} => $typ")
             }
-            if(annoInfo.contains("column")){
-                col.name = annoInfo("column")
+            if(annoInfo.contains(SqlOps.sqlType)){
+                col.value = annoInfo(SqlOps.sqlType)
             }
-            if(annoInfo.contains("sqlType")){
-                col.value = annoInfo("sqlType")
+            if(annoInfo.contains(SqlOps.column)){
+                col.name = annoInfo(SqlOps.column)
             }
             typeScheme.fields(m.name.toString.replace(" ", "")) = FieldInfo(annoInfo, relationClass, foreignRelation)
             if(shouldInsert) {
@@ -272,7 +292,44 @@ object ScalaSequel {
         }
     }
 
-    def searchSequelFields(clz: Class[_], fn: (TermSymbol, Annotation, mutable.HashMap[String, String], Class[_]) => Unit): Unit = {
+    def registerThroughClass[T <: SequelData, U <: SequelData, V <: SequelData]
+        (through: Class[T], classA: Class[U], classB: Class[V]): Unit = {
+        val humanThroughName = through.getSimpleName.split("$").last.split("\\.").last
+        val humanClassA = classA.getSimpleName.split("$").last.split("\\.").last
+        val humanClassB = classB.getSimpleName.split("$").last.split("\\.").last
+        if(dropAll) {
+            val drop = s"DROP TABLE $humanThroughName"
+            println(s"Exec: $drop")
+            try {
+                conn.createStatement().execute(drop)
+            }catch{
+                case _: Exception => {}
+            }
+        }
+        val createDB = new mutable.StringBuilder()
+        createDB.append(s"Create table $humanThroughName (")
+        createDB.append("id int,")
+        createDB.append(s"${humanClassA}_id int, ")
+        createDB.append(s"${humanClassB}_id int, ")
+        createDB.append(s"date_created DATETIME, date_updated DATETIME, PRIMARY KEY (id) )")
+        println(s"Exec: ${createDB.mkString}")
+
+        try {
+            conn.createStatement().execute(createDB.mkString)
+        }catch{
+            case _: Exception => println("Table already exists")
+        }
+    }
+
+    def getColumnFor(m: TermSymbol, annoInfo: mutable.HashMap[String, String]): String = {
+        val rtclss = runtimeMirror(getClass.getClassLoader).runtimeClass(m.typeSignature.typeArgs.head)
+        if(annoInfo.contains("column")){
+            return annoInfo("column")
+        }
+        return rtclss.getSimpleName + "_id"
+    }
+
+    def searchSequelFields(clz: Class[_], fn: methodParseFunc): Unit = {
         val dataClassMirror: universe.Mirror = runtimeMirror(clz.getClassLoader)
         val clazz = dataClassMirror.classSymbol(clz)
         clazz.toType.members.collect {
@@ -298,6 +355,7 @@ object ScalaSequel {
     }
 
     private def parseAnnotationArgs(anno: Annotation): mutable.HashMap[String, String] = {
+        // Does not support arrow notation
         val fieldMap = mutable.HashMap[String, String]()
         if(anno.tree.children.nonEmpty) {
             anno.tree.children.tail.collect {
@@ -352,10 +410,6 @@ object Relations {
 
         var data: Option[SequelData] = None
 
-        def isLoaded(): Boolean = {
-            return false
-        }
-
         def get: T = data.get.asInstanceOf[T]
 
         def set(dt: T): Unit = {
@@ -365,6 +419,15 @@ object Relations {
                     case bt: BelongsTo[_] => bt.data = caller
                     case btm: BelongsToMany[_,_] => btm.data += caller
                 }
+            }
+        }
+
+        def load(): Unit = {
+            if(data.isDefined) {
+                data = Some(ScalaSequel.schemaByDataClassName(data.get.getClass.getName)
+                    .find(data.get.id.get).asInstanceOf[T])
+            }else{
+                throw new UnsupportedOperationException("Cannot load un-committed data")
             }
         }
 
@@ -380,11 +443,19 @@ object Relations {
             this.data ++= data
         }
 
-        def isLoaded(): Boolean = {
-            return false
+        def +=(dt: T): Unit = add(dt)
+
+        def add(dt: T): Unit = {
+            data += dt
+            if(ScalaSequel.relationMapping.contains((caller.getClass, dt.getClass))){
+                ScalaSequel.relationMapping(caller.getClass, dt.getClass)._2.invoke(dt) match {
+                    case bt: BelongsTo[_] => bt.data = caller
+                    case btm: BelongsToMany[_,_] => btm.data += caller
+                }
+            }
         }
 
-        def get(): mutable.ArrayBuffer[T] = data.asInstanceOf[mutable.ArrayBuffer[T]]
+        def get(): mutable.ArrayBuffer[T] = data.asInstanceOf[mutable.ArrayBuffer[T]].clone()
 
     }
 
@@ -392,8 +463,8 @@ object Relations {
 
         var data: SequelData = _
 
-        def isLoaded(): Boolean = {
-            return false
+        def load(): Unit = {
+            data = ScalaSequel.schemaByDataClassName(data.getClass.getName).find(data.id.get).asInstanceOf[T]
         }
 
         def get(): T = data.asInstanceOf[T]

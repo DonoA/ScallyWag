@@ -1,11 +1,10 @@
 package io.dallen.scallywag
 
-import java.lang.{Thread, Double}
+import java.lang.Double
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.{ServerSocketChannel, SocketChannel, SelectionKey, Selector}
 import scala.collection.mutable.{ArrayBuffer, Queue}
-import collection.JavaConverters._
 
 object ScalaServer {
 
