@@ -1,15 +1,8 @@
 package io.dallen.scallywag
 
 import io.dallen.scallywag
-import io.dallen.scallywag.HTTPApplicationServer.{Request, Response}
-import io.dallen.scallywag.httpserver.{HTTPMethod, HTTPRequest, HTTPResponseCode}
-
-object NotFoundRoute {
-  def notFound(req: HTTPApplicationServer.Request, res: HTTPApplicationServer.Response): Unit = {
-    res.body = "Not Found"
-    res.code = HTTPResponseCode.OK
-  }
-}
+import io.dallen.scallywag.HTTPApplicationServer.Response
+import io.dallen.scallywag.httpserver.{HTTPRequest, HTTPResponseCode}
 
 import scala.collection.mutable
 
@@ -19,12 +12,16 @@ class ApplicationRouter {
 
 //  private val customRoutes = new util.ArrayList[(String => Boolean, HTTPApplicationServer.HTTPHandler)]()
 
-  var defaultRoute: HTTPApplicationServer.HTTPHandler = NotFoundRoute.notFound
+  var defaultRoute: HTTPApplicationServer.HTTPHandler =
+    (_: HTTPApplicationServer.Request, res: HTTPApplicationServer.Response) =>
+      res.code = HTTPResponseCode.NOT_FOUND
 
   private var fastRoutes = true
 
   def addRoute(routePattern: String, handler: HTTPApplicationServer.HTTPHandler): Unit = {
-    // detect if route can be fast matched
+    if(!fastRoutes && routePattern.contains(":")) {
+      fastRoutes = false
+    }
     routes.put(routePattern, handler)
   }
 
@@ -42,7 +39,25 @@ class ApplicationRouter {
   }
 
   private def patternMatches(test: String, pattern: String): Option[Map[String, String]] = {
-    return Option.empty
+    val testSegments = test.split("/").iterator
+    val patternSegments = pattern.split("/").iterator
+    if (testSegments.size != patternSegments.size) {
+      return Option.empty
+    }
+
+    val params = new mutable.HashMap[String, String]()
+
+    while (testSegments.hasNext) {
+      val testBit = testSegments.next()
+      val patternBit = patternSegments.next()
+      if (patternBit.startsWith(":")) {
+        params.put(patternBit.drop(1), testBit)
+      } else if (!testBit.equals(patternBit)) {
+        return Option.empty
+      }
+    }
+
+    return Option(params.toMap)
   }
 
 }

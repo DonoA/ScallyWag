@@ -2,6 +2,8 @@ package io.dallen.scallywag
 
 import io.dallen.scallywag.httpserver._
 
+import scala.collection.mutable
+
 object HTTPApplicationServer {
   type HTTPHandler = (HTTPApplicationServer.Request, HTTPApplicationServer.Response) => Unit
 
@@ -18,7 +20,7 @@ object HTTPApplicationServer {
 
   class Response() {
     var code: HTTPResponseCode = HTTPResponseCode.OK
-    var headers: Map[String, String] = Map[String, String]()
+    var headers: mutable.Map[String, String] = new mutable.HashMap[String, String]()
     var body: String = ""
   }
 
@@ -48,8 +50,8 @@ class HTTPApplicationServer(port: Int) {
   }
 
   private def handle(httpRequest: HTTPRequest): HTTPResponse = {
+    println(httpRequest)
     val resp = routerByMethod(HTTPMethod.getByName(httpRequest.method)).routeRequest(httpRequest)
-
-    return HTTPResponse(resp.code, Map[String, String](), resp.body)
+    return HTTPResponse(resp.code, resp.headers.toMap, resp.body)
   }
 }

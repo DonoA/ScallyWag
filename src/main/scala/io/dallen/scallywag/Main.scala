@@ -6,9 +6,14 @@ object Main {
     res.body = "<html><body><h1>Hello, World!</h1></body></html>"
   }
 
+  def otherGet(req: HTTPApplicationServer.Request, res: HTTPApplicationServer.Response): Unit = {
+    res.body = "<html><body><h1>Hello!</h1></body></html>"
+  }
+
   def main(args: Array[String]): Unit = {
     new HTTPApplicationServer(8080)
       .get("/", indexGet)
+      .get("/hello", otherGet)
       .start()
   }
 }

@@ -48,6 +48,7 @@ class TCPServer(port: Int, handler: (String, SocketChannel) => String) {
       if (completed) {
         reqMap.remove(channel.getRemoteAddress)
         if (existingData.nonEmpty) {
+          println(existingData.toString())
           val response = handler.apply(existingData.toString(), channel)
           writeMessage(channel, response)
         } else {
