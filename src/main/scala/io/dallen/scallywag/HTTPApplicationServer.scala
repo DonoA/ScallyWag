@@ -18,30 +18,30 @@ object HTTPApplicationServer {
     def body: String = parent.body
   }
 
-  class Response() {
+  class Response(private val defaultHeaders: Map[String, String]) {
     var code: HTTPResponseCode = HTTPResponseCode.OK
-    var headers: mutable.Map[String, String] = new mutable.HashMap[String, String]()
+    var headers: mutable.Map[String, String] = defaultHeaders
+        .filter(p => Array("Connection").contains(p._1))
+        .foldLeft(new mutable.HashMap[String, String]())((map, elem) => {
+          map += elem
+        })
     var body: String = ""
   }
-
 }
 
 class HTTPApplicationServer(port: Int) {
 
   private val httpServer = new HTTPServer(port, handle)
 
-  private val routerByMethod = Map[HTTPMethod, ApplicationRouter](
-    HTTPMethod.GET -> new ApplicationRouter(),
-    HTTPMethod.POST -> new ApplicationRouter(),
-  )
+  var router: ApplicationRouter = new HTTPApplicationRouter()
 
   def get(path: String, handler: HTTPApplicationServer.HTTPHandler): HTTPApplicationServer = {
-    routerByMethod(HTTPMethod.GET).addRoute(path, handler)
+    router.registerRoute(HTTPMethod.GET, path, handler)
     return this
   }
 
   def post(path: String, handler: HTTPApplicationServer.HTTPHandler): HTTPApplicationServer = {
-    routerByMethod(HTTPMethod.POST).addRoute(path, handler)
+    router.registerRoute(HTTPMethod.POST, path, handler)
     return this
   }
 
@@ -51,7 +51,8 @@ class HTTPApplicationServer(port: Int) {
 
   private def handle(httpRequest: HTTPRequest): HTTPResponse = {
     println(httpRequest)
-    val resp = routerByMethod(HTTPMethod.getByName(httpRequest.method)).routeRequest(httpRequest)
-    return HTTPResponse(resp.code, resp.headers.toMap, resp.body)
+
+    val resp = router.routeRequest(HTTPMethod.getByName(httpRequest.method), httpRequest)
+    return HTTPResponse(resp.code, resp.headers, resp.body)
   }
 }

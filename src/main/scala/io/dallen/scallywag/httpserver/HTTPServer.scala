@@ -14,7 +14,7 @@ case class HTTPRequest(
 
 case class HTTPResponse(
                          var code: HTTPResponseCode,
-                         var headers: Map[String, String],
+                         var headers: mutable.Map[String, String],
                          var body: String)
 
 case class HTTPResponseCode(code: Int, msg: String) {
@@ -45,11 +45,15 @@ class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
 
   def start(): Unit = tcpServer.start()
 
-  private def tcpHandler(message: String, channel: SocketChannel): String = {
+  private def tcpHandler(message: String, channel: SocketChannel): (String, Boolean) = {
     val req = parseHTTPRequest(message)
     val rawResponse = handler.apply(req)
-    return serializeResponse(rawResponse)
+    rawResponse.headers.put("Content-Length", rawResponse.body.length.toString)
+    return (serializeResponse(rawResponse), shouldClose(rawResponse))
   }
+
+  private def shouldClose(req: HTTPResponse, header: String = "Connection"): Boolean =
+    req.headers.getOrElse(header, () => "close").equals("close")
 
   private def parseHTTPRequest(message: String): HTTPRequest = {
     val lines = message.split("\r\n")
@@ -74,7 +78,10 @@ class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
       body = newBodyLines.fold("")(_.concat(_).concat("\r\n"))
       headerLines = newHeaderLines
     }
-    val headers = headerLines.dropRight(1).map(s => s.splitAt(s.indexOf(":"))).toMap
+    val headers = headerLines.dropRight(1).map(s => {
+      val b = s.splitAt(s.indexOf(":"))
+      (b._1, b._2.drop(2))
+    }).toMap
     return HTTPRequest(method, location, proto, headers, urlParams, body)
   }
 

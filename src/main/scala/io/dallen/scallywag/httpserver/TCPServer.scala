@@ -6,7 +6,7 @@ import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketCha
 
 import scala.collection.mutable
 
-class TCPServer(port: Int, handler: (String, SocketChannel) => String) {
+class TCPServer(port: Int, handler: (String, SocketChannel) => (String, Boolean)) {
 
   private val socketChannel: ServerSocketChannel = ServerSocketChannel
     .open
@@ -49,8 +49,8 @@ class TCPServer(port: Int, handler: (String, SocketChannel) => String) {
         reqMap.remove(channel.getRemoteAddress)
         if (existingData.nonEmpty) {
           println(existingData.toString())
-          val response = handler.apply(existingData.toString(), channel)
-          writeMessage(channel, response)
+          val (response, close) = handler.apply(existingData.toString(), channel)
+          writeMessage(channel, response, close)
         } else {
           println("Empty request!")
         }
@@ -58,9 +58,11 @@ class TCPServer(port: Int, handler: (String, SocketChannel) => String) {
     }
   }
 
-  private def writeMessage(channel: SocketChannel, msg: String): Unit = if(channel.isOpen){
+  private def writeMessage(channel: SocketChannel, msg: String, close: Boolean): Unit = if(channel.isOpen){
     channel.write(ByteBuffer.wrap(msg.getBytes()))
-    channel.close()
+    if (close) {
+      channel.close()
+    }
   }
 
   private def acceptOrReadKey(key: SelectionKey): Option[(String, SocketChannel, Boolean)] = {
