@@ -1,16 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <groupId>io.dallen</groupId>
-    <artifactId>Scallywag</artifactId>
+    <artifactId>ScallyWag</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
-    <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
-    </properties>
-    
+
     <dependencies>
         <dependency>
             <groupId>org.scala-lang</groupId>
@@ -24,13 +21,8 @@
             <version>2.12.3</version>
             <scope>compile</scope>
         </dependency>
-        <dependency>
-            <groupId>mysql</groupId>
-            <artifactId>mysql-connector-java</artifactId>
-            <version>5.1.39</version>
-        </dependency>
     </dependencies>
-    
+
     <build>
         <finalName>Scallywag</finalName>
         <sourceDirectory>src/main/scala</sourceDirectory>
@@ -39,7 +31,7 @@
             <plugin>
                 <groupId>net.alchim31.maven</groupId>
                 <artifactId>scala-maven-plugin</artifactId>
-                <version>3.2.2</version>
+                <version>3.4.4</version>
                 <executions>
                     <execution>
                         <id>compile</id>
@@ -60,7 +52,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>2.4.3</version>
+                <version>3.2.1</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -70,7 +62,7 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>io.dallen.scallywag.SampleApp</mainClass>
+                                    <mainClass>io.dallen.scallywag.Main</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
@@ -79,4 +71,5 @@
             </plugin>
         </plugins>
     </build>
+
 </project>
