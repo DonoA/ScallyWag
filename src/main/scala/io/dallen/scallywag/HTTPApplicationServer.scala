@@ -33,15 +33,25 @@ class HTTPApplicationServer(port: Int) {
 
   private val httpServer = new HTTPServer(port, handle)
 
-  var router: ApplicationRouter = new HTTPApplicationRouter()
+  var router = new HTTPRouter()
 
   def get(path: String, handler: HTTPApplicationServer.HTTPHandler): HTTPApplicationServer = {
-    router.registerRoute(HTTPMethod.GET, path, handler)
+    router.get(path, handler)
+    return this
+  }
+
+  def get(path: String, subrouter: HTTPRouter): HTTPApplicationServer = {
+    router.get(path, subrouter)
     return this
   }
 
   def post(path: String, handler: HTTPApplicationServer.HTTPHandler): HTTPApplicationServer = {
-    router.registerRoute(HTTPMethod.POST, path, handler)
+    router.post(path, handler)
+    return this
+  }
+
+  def post(path: String, subrouter: HTTPRouter): HTTPApplicationServer = {
+    router.post(path, subrouter)
     return this
   }
 
@@ -52,7 +62,7 @@ class HTTPApplicationServer(port: Int) {
   private def handle(httpRequest: HTTPRequest): HTTPResponse = {
     println(httpRequest)
 
-    val resp = router.routeRequest(HTTPMethod.getByName(httpRequest.method), httpRequest)
+    val resp = router.getMethodRouter(HTTPMethod.getByName(httpRequest.method)).apply(httpRequest)
     return HTTPResponse(resp.code, resp.headers, resp.body)
   }
 }

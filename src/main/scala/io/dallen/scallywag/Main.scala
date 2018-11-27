@@ -13,8 +13,9 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     new HTTPApplicationServer(8080)
-      .get("/", indexGet)
-      .get("/:name/hello", otherGet)
+      .get("/index", new HTTPRouter()
+        .get("/nice", indexGet _, otherGet _, new HTTPRouter()))
+      .get("/:name/hello", otherGet _)
       .start()
   }
 }
