@@ -4,8 +4,8 @@ import io.dallen.scallywag.httpserver._
 
 import scala.collection.mutable
 
-object HTTPApplicationServer {
-  type HTTPHandler = (HTTPApplicationServer.Request, HTTPApplicationServer.Response) => Unit
+object ApplicationServer {
+  type Handler = (ApplicationServer.Request, ApplicationServer.Response) => Unit
 
   class Request(private val httpRequest: HTTPRequest, val routeParameters: Map[String, String]) {
     private val parent = httpRequest
@@ -29,29 +29,19 @@ object HTTPApplicationServer {
   }
 }
 
-class HTTPApplicationServer(port: Int) {
+class ApplicationServer(port: Int) {
 
   private val httpServer = new HTTPServer(port, handle)
 
-  var router = new HTTPRouter()
+  var router = new Router()
 
-  def get(path: String, handler: HTTPApplicationServer.HTTPHandler): HTTPApplicationServer = {
-    router.get(path, handler)
+  def get(path: String, handlers: AnyRef*): ApplicationServer = {
+    router.get(path, handlers.toList)
     return this
   }
 
-  def get(path: String, subrouter: HTTPRouter): HTTPApplicationServer = {
-    router.get(path, subrouter)
-    return this
-  }
-
-  def post(path: String, handler: HTTPApplicationServer.HTTPHandler): HTTPApplicationServer = {
-    router.post(path, handler)
-    return this
-  }
-
-  def post(path: String, subrouter: HTTPRouter): HTTPApplicationServer = {
-    router.post(path, subrouter)
+  def post(path: String, handlers: AnyRef*): ApplicationServer = {
+    router.post(path, handlers.toList)
     return this
   }
 
@@ -60,9 +50,9 @@ class HTTPApplicationServer(port: Int) {
   }
 
   private def handle(httpRequest: HTTPRequest): HTTPResponse = {
-    println(httpRequest)
+    println(s"Request to ${httpRequest.location}")
 
-    val resp = router.getMethodRouter(HTTPMethod.getByName(httpRequest.method)).apply(httpRequest)
+    val resp = router.route(HTTPMethod.getByName(httpRequest.method), httpRequest)
     return HTTPResponse(resp.code, resp.headers, resp.body)
   }
 }

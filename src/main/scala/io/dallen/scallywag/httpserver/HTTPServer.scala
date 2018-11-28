@@ -49,7 +49,7 @@ class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
     val req = parseHTTPRequest(message)
     val rawResponse = handler.apply(req)
     rawResponse.headers.put("Content-Length", rawResponse.body.length.toString)
-    return (serializeResponse(rawResponse), shouldClose(rawResponse))
+    return (serializeResponse(rawResponse), true || shouldClose(rawResponse))
   }
 
   private def shouldClose(req: HTTPResponse, header: String = "Connection"): Boolean =
@@ -86,13 +86,15 @@ class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
   }
 
   private def serializeResponse(httpResponse: HTTPResponse): String = {
-    val responseString = new StringBuilder()
-    responseString.append("HTTP/1.1 ")
-      .append(httpResponse.code.toString)
-      .append("\r\n")
-    httpResponse.headers.foreach(header => responseString.append(header._1).append(": ").append(header._2).append("\r\n"))
-    responseString.append("\r\n\r\n").append(httpResponse.body)
-    return responseString.toString()
+    val code = httpResponse.code.toString
+    val headers = httpResponse.headers.map { case (name, value) => s"$name: $value" }.mkString("\r\n")
+    val body = httpResponse.body
+    s""" |HTTP/1.1 $code
+         |$headers
+         |
+         |$body
+         |
+       """.stripMargin.replace("\n", "\r\n")
   }
 
 }
