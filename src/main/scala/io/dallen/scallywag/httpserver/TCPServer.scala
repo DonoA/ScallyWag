@@ -5,8 +5,18 @@ import java.nio.ByteBuffer
 import java.nio.channels.{SelectionKey, Selector, ServerSocketChannel, SocketChannel}
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
-class TCPServer(port: Int, handler: (String, SocketChannel) => (String, Boolean)) {
+abstract class TCPConsumer {
+  def consume(buffer: ArrayBuffer[ByteBuffer], bytesRead: Int): (ByteBuffer, Boolean)
+}
+
+class TCPServer(port: Int, consumeFactory: () => TCPConsumer) {
+
+  class ChannelBuffer(val consumer: TCPConsumer) {
+    val buffer: ArrayBuffer[ByteBuffer] = new ArrayBuffer[ByteBuffer](1)
+    buffer.append(ByteBuffer.allocate(16))
+  }
 
   private val socketChannel: ServerSocketChannel = ServerSocketChannel
     .open
@@ -15,56 +25,43 @@ class TCPServer(port: Int, handler: (String, SocketChannel) => (String, Boolean)
 
   private val selector: Selector = Selector.open()
 
-  private val reqMap = new mutable.HashMap[SocketAddress, mutable.StringBuilder]()
+  private val reqMap = new mutable.HashMap[SocketAddress, ChannelBuffer]()
 
   def start(): Unit = {
     socketChannel.bind(new InetSocketAddress(port))
     socketChannel.register(selector, SelectionKey.OP_ACCEPT)
 
     while (true) {
-      checkNewKeys().foreach(handleKey)
+      checkNewKeys()
     }
   }
 
-  private def checkNewKeys(): List[(String, SocketChannel, Boolean)] = if(selector.selectNow() <= 0) {
-    val keyData = selector
+  private def checkNewKeys(): Unit = if(selector.selectNow() <= 0) {
+    selector
       .selectedKeys()
       .toArray(Array[SelectionKey]())
       .map(acceptOrReadKey)
       .filter(_.isDefined)
       .map(_.get)
+      .foreach(handleKey)
     selector.selectedKeys().clear()
-    return keyData.toList
-  } else {
-    List()
   }
 
-  private def handleKey(data: (String, SocketChannel, Boolean)): Unit = data match {
-    case (msg, channel, completed) => {
-      val existingData = reqMap.getOrElseUpdate(channel.getRemoteAddress, new mutable.StringBuilder())
-      if (!msg.isEmpty) {
-        existingData.append(msg.replace("\0", ""))
-      }
-      if (completed) {
-        reqMap.remove(channel.getRemoteAddress)
-        if (existingData.nonEmpty) {
-          val (response, close) = handler.apply(existingData.toString(), channel)
-          writeMessage(channel, response, close)
-        } else {
-          println("Empty request!")
-        }
-      }
+  private def handleKey(data: (ChannelBuffer, SocketChannel, Int)): Unit = data match {
+    case (channelBuffer, channel, bytesRead) => {
+      val (response, close) = channelBuffer.consumer.consume(channelBuffer.buffer, bytesRead)
+      writeMessage(channel, response, close)
     }
   }
 
-  private def writeMessage(channel: SocketChannel, msg: String, close: Boolean): Unit = if(channel.isOpen){
-    channel.write(ByteBuffer.wrap(msg.getBytes()))
+  private def writeMessage(channel: SocketChannel, msg: ByteBuffer, close: Boolean): Unit = if(channel.isOpen){
+    channel.write(msg)
     if (close) {
       channel.close()
     }
   }
 
-  private def acceptOrReadKey(key: SelectionKey): Option[(String, SocketChannel, Boolean)] = {
+  private def acceptOrReadKey(key: SelectionKey): Option[(ChannelBuffer, SocketChannel, Int)] = {
     if (key.isAcceptable) {
       val socketChannel = key.channel.asInstanceOf[ServerSocketChannel].accept
       socketChannel.configureBlocking(false)
@@ -72,15 +69,12 @@ class TCPServer(port: Int, handler: (String, SocketChannel) => (String, Boolean)
     }
     if (key.isReadable) {
       val socketChannel = key.channel.asInstanceOf[SocketChannel]
-      val iBuffer = ByteBuffer.allocate(16)
-      if (socketChannel.read(iBuffer) <= 0) {
-        socketChannel.close()
-        return Option.empty
+      val writeSpace = reqMap.getOrElseUpdate(socketChannel.getRemoteAddress, new ChannelBuffer(consumeFactory.apply()))
+      if(!writeSpace.buffer.last.hasRemaining) {
+        writeSpace.buffer.append(ByteBuffer.allocate(16))
       }
-
-      val msg = new String(iBuffer.array)
-      val completed = msg.isEmpty || msg.last == 0
-      return Some((msg, socketChannel, completed))
+      val bytesRead = socketChannel.read(writeSpace.buffer.last)
+      return Some((writeSpace, socketChannel, bytesRead))
     }
     return Option.empty
   }

@@ -15,7 +15,7 @@ object ApplicationServer {
     def proto: String = parent.proto
     def headers: Map[String, String] = parent.headers
     def urlParameters: Map[String, String] = parent.urlParameters
-    def body: String = parent.body
+    def body: RequestBody = parent.body
   }
 
   class Response(private val defaultHeaders: Map[String, String]) {

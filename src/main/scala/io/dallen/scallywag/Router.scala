@@ -8,8 +8,6 @@ import scala.collection.mutable
 
 class Router {
 
-//  private val customRoutes = new util.ArrayList[(String => Boolean, HTTPApplicationServer.HTTPHandler)]()
-
   var defaultRoute: ApplicationServer.Handler =
     (_: ApplicationServer.Request, res: ApplicationServer.Response) =>
       res.code = HTTPResponseCode.NOT_FOUND
