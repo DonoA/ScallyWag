@@ -49,4 +49,22 @@
       </plugin>
     </plugins>
   </build>
+  <dependencies>
+    <dependency>
+      <groupId>org.scalatest</groupId>
+      <artifactId>scalatest_2.12</artifactId>
+      <version>3.0.5</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>scalactic_2.12</artifactId>
+          <groupId>org.scalactic</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>scala-xml_2.12</artifactId>
+          <groupId>org.scala-lang.modules</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+  </dependencies>
 </project>

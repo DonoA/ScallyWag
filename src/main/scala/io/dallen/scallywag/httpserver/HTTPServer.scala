@@ -1,7 +1,6 @@
 package io.dallen.scallywag.httpserver
 
 import java.nio.ByteBuffer
-import java.nio.channels.SocketChannel
 import java.nio.charset.Charset
 import java.util.regex.Pattern
 
@@ -60,95 +59,137 @@ object HTTPServer {
 }
 
 class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
-  val tcpServer = new TCPServer(port, () => new StreamProcessor(consumeRequest))
+  val tcpServer = new TCPServer(port, () => new StreamProcessor(consumeRequest).consume _)
 
   def start(): Unit = tcpServer.start()
 
+  def await(): Unit = tcpServer.await()
 
   private def consumeRequest(request: HTTPRequest): (Array[Byte], Boolean) = {
     val rawResponse = handler.apply(request)
-    rawResponse.headers.put("Content-Length", rawResponse.body.length.toString)
-    return (serializeResponse(rawResponse).getBytes(HTTPServer.UTF8), true || shouldClose(rawResponse))
+    rawResponse.headers.put("content-length", rawResponse.body.getBytes.length.toString)
+    val keepAlive = !shouldClose(rawResponse)
+    if(keepAlive) {
+      println("Keeping socket open")
+    }
+    return (serializeResponse(rawResponse), !keepAlive)
   }
 
   private def shouldClose(req: HTTPResponse, header: String = "Connection"): Boolean =
     req.headers.getOrElse(header, () => "close").equals("close")
 
-  private def serializeResponse(httpResponse: HTTPResponse): String = {
+  private def serializeResponse(httpResponse: HTTPResponse): Array[Byte] = {
     val code = httpResponse.code.toString
     val headers = httpResponse.headers.map { case (name, value) => s"$name: $value" }.mkString("\r\n")
     val body = httpResponse.body
-    s""" |HTTP/1.1 $code
-         |$headers
-         |
-         |$body
-         |
-       """.stripMargin.replace("\n", "\r\n")
+    return s""" |HTTP/1.1 $code
+                |$headers
+                |
+                |$body
+                |
+              """
+      .stripMargin
+      .replace("\n", "\r\n")
+      .getBytes(HTTPServer.UTF8)
   }
 
-  class StreamProcessor(consumeRequest: HTTPRequest => (Array[Byte], Boolean)) extends TCPConsumer {
+  object StreamState extends Enumeration {
+    type State = Value
+    val GatheringHeader, GatheringBody, Complete = Value
+  }
 
-    var bytesRead = 0
+  class StreamProcessor(consumeRequest: HTTPRequest => (Array[Byte], Boolean)) {
 
-    var byteTarget: Option[Int] = None
+    var totalBytesRead = 0
+
+    var bodyLengthTarget: Option[Int] = None
 
     var workingRequest: Option[HTTPRequest] = None
 
-    override def consume(buffer: ArrayBuffer[ByteBuffer], newRead: Int): (ByteBuffer, Boolean) = {
+    var state: StreamState.State = StreamState.GatheringHeader
+
+    def consume(buffers: ArrayBuffer[ByteBuffer], newRead: Int): Option[(ByteBuffer, Boolean)] = {
       var readBytes = newRead
-      val bufferEnd = buffer.last.position()
-      if(byteTarget.isEmpty) {
-        val header = headerProcessor(buffer, readBytes)
-        if(header.isEmpty) {
-          return (ByteBuffer.wrap(Array[Byte]()), false)
-        }
-        workingRequest = Some(parseHeader(header.get))
-        byteTarget = Some(workingRequest.get.headers.getOrElse("content-length", "0").toInt)
 
-        val extraBytes = bufferEnd - buffer.last.position()
-        val bytesToCopy = buffer.last
-        buffer.clear()
-        buffer.append(ByteBuffer.allocate(bytesToCopy.capacity()))
-        while(bytesToCopy.hasRemaining) {
-          buffer.last.put(bytesToCopy.get())
+      if(state == StreamState.GatheringHeader) {
+        val completed = headerProcessor(buffers, readBytes)
+        if(completed) {
+          readBytes = 0
+          state = StreamState.GatheringBody
+        } else {
+          return None
         }
-        bytesRead = extraBytes
-        readBytes = 0
       }
 
-      if(byteTarget.isDefined) {
-        val body = bodyProcessor(buffer, readBytes)
+      if(state == StreamState.GatheringBody) {
+        val body = bodyProcessor(buffers, readBytes)
         if(body.isDefined) {
-          workingRequest.get.body = RawBody(new String(body.get))
+          workingRequest.get.body = RawBody(new String(body.get, HTTPServer.UTF8))
           val (data, close) = consumeRequest.apply(workingRequest.get)
-          return (ByteBuffer.wrap(data), close)
+          state = StreamState.Complete
+          return Some(ByteBuffer.wrap(data), close)
         }
       }
-      return (ByteBuffer.allocate(0), false)
+      return None
     }
 
-    private def headerProcessor(buffer: ArrayBuffer[ByteBuffer], newBytes: Int): Option[String] = {
-      bytesRead += newBytes
+    private def headerProcessor(buffers: ArrayBuffer[ByteBuffer], i: Int): Boolean = {
+      val bufferEnd = buffers.last.position()
+      val header = headerOption(buffers, i)
+      if(header.isEmpty) {
+        // header not complete
+        return false
+      }
+      // Build working request and get body length
+      workingRequest = Some(parseHeader(header.get))
+      bodyLengthTarget = Some(workingRequest.get.headers.getOrElse("content-length", "0").toInt)
+
+      // Erase header from buffer so body can be placed there
+      val trailingBytes = bufferEnd - buffers.last.position()
+      removeHeaderFromBuffers(buffers, trailingBytes)
+      totalBytesRead = trailingBytes
+
+      // header selection is complete
+      return true
+    }
+
+    private def removeHeaderFromBuffers(buffers: ArrayBuffer[ByteBuffer], bodyByteCount: Int): Unit = {
+      val bytesToCopy = buffers.last
+      buffers.clear()
+      buffers.append(ByteBuffer.allocate(bytesToCopy.capacity()))
+      while(bytesToCopy.hasRemaining) {
+        buffers.last.put(bytesToCopy.get())
+      }
+    }
+
+    private def headerOption(buffer: ArrayBuffer[ByteBuffer], newBytes: Int): Option[String] = {
+      totalBytesRead += newBytes
+      // quit early if we don't have enough chars to contain our seq
       if (newBytes < 4 && buffer.size <= 1) {
         return None
       }
 
+      // byte count already in buffer
       val existingValues = buffer.last.position() - newBytes
 
-      val prevBufferRes = if (buffer.size > 1 || existingValues > 4) {
+      // if we need to check the previous buffer, do that and save the pattern state
+      val prevBufferPatternState = if (buffer.size > 1 || existingValues > 4) {
         val prevBuff = buffer.apply(buffer.size - 2)
         prevBuff.position(prevBuff.capacity() - 4)
         checkBuffer(prevBuff, 0)
       } else {
         0
       }
+      // reset the newest buffer position to a location 4 chars before the start of new bytes
       buffer.last.position(if(existingValues > 4) existingValues else 0)
-      val latestBufferRes = checkBuffer(buffer.last, prevBufferRes)
+      val latestBufferPatternState = checkBuffer(buffer.last, prevBufferPatternState)
 
-      if(latestBufferRes >= 4) {
-        val stringData = new String(joinBuffer(buffer, bytesRead), Charset.forName("UTF-8"))
+      // if a pattern match was found, stitch together the buffers for parsing
+      if(latestBufferPatternState >= 4) {
+        val stringData = new String(joinBuffer(buffer, totalBytesRead), HTTPServer.UTF8)
         return Some(stringData)
       }
+
       return None
     }
 
@@ -156,9 +197,12 @@ class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
       arrayBuffer.flatMap { e => e.array() }.toArray
 
     private def bodyProcessor(buffer: ArrayBuffer[ByteBuffer], newBytes: Int): Option[Array[Byte]] = {
-      bytesRead += newBytes
-      if(bytesRead >= byteTarget.get) {
-        return Some(joinBuffer(buffer, bytesRead))
+      // count bytes until we have received the full body
+      totalBytesRead += newBytes
+      if(totalBytesRead >= bodyLengthTarget.get) {
+        var bodyData = joinBuffer(buffer, totalBytesRead)
+        bodyData = bodyData.dropRight(bodyData.length - bodyLengthTarget.get)
+        return Some(bodyData)
       } else {
         return None
       }
@@ -214,7 +258,7 @@ class HTTPServer(port: Int, handler: HTTPRequest => HTTPResponse) {
         .split("\r\n")
         .map { header =>
           val Array(name, value) = header.split(": ", 2)
-          (name, value)
+          (name.toLowerCase, value)
         }.toMap
 
       return HTTPRequest(method, path, httpVersion, headers, urlParams, RawBody(""))

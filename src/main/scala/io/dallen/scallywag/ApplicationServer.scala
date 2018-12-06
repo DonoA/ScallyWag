@@ -21,7 +21,7 @@ object ApplicationServer {
   class Response(private val defaultHeaders: Map[String, String]) {
     var code: HTTPResponseCode = HTTPResponseCode.OK
     var headers: mutable.Map[String, String] = defaultHeaders
-        .filter(p => Array("Connection").contains(p._1))
+        .filter(p => Array("connection").contains(p._1))
         .foldLeft(new mutable.HashMap[String, String]())((map, elem) => {
           map += elem
         })
@@ -45,8 +45,13 @@ class ApplicationServer(port: Int) {
     return this
   }
 
-  def start(): Unit = {
+  def start(): ApplicationServer = {
     httpServer.start()
+    return this
+  }
+
+  def await(): Unit = {
+    httpServer.await()
   }
 
   private def handle(httpRequest: HTTPRequest): HTTPResponse = {

@@ -39,7 +39,7 @@ class Router {
       .filter(_.isInstanceOf[ApplicationServer.Handler])
       .map(_.asInstanceOf[ApplicationServer.Handler]))
 
-    // flatten routes
+    // flatten routes from subrouters before commiting them
     handlers
       .filter(_.isInstanceOf[Router])
       .map(_.asInstanceOf[Router])
