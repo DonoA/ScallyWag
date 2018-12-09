@@ -1,6 +1,6 @@
 package io.dallen.scallywag.httpserver
 
-import java.net.{InetSocketAddress, SocketAddress}
+import java.net.{InetSocketAddress, Socket, SocketAddress}
 import java.nio.ByteBuffer
 import java.nio.channels._
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,6 +41,7 @@ object TCPServer {
     override def read(buffer: ByteBuffer): Int = channel.read(buffer)
     override def write(buffer: ByteBuffer): Int = channel.write(buffer)
     override def close(): Unit = channel.close()
+    override def socket: Socket = channel.socket()
   }
 
   class ClientSelectionKeyImpl(key: SelectionKey) extends ClientSelectionKey {
@@ -48,6 +49,11 @@ object TCPServer {
     override def isReadable: Boolean = key.isReadable
     override def channel: SelectableChannel = key.channel()
     override def selector: Selector = key.selector()
+  }
+
+  class ChannelBuffer(val consumer: TCPServer.TCPConsumer, val socket: Socket) {
+    val buffer: ArrayBuffer[ByteBuffer] = new ArrayBuffer[ByteBuffer](1)
+    buffer.append(ByteBuffer.allocate(16))
   }
 }
 
@@ -63,6 +69,7 @@ trait ClientSocketChannel {
   def read(buffer: ByteBuffer): Int
   def write(buffer: ByteBuffer): Int
   def close(): Unit
+  def socket: Socket
 }
 
 trait ClientSelectionKey {
@@ -78,17 +85,13 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
 
   private val running: AtomicBoolean = new AtomicBoolean(true)
 
-  class ChannelBuffer(val consumer: TCPServer.TCPConsumer) {
-    val buffer: ArrayBuffer[ByteBuffer] = new ArrayBuffer[ByteBuffer](1)
-    buffer.append(ByteBuffer.allocate(16))
-  }
-
-  private val reqMap = new mutable.HashMap[SocketAddress, ChannelBuffer]()
+  private var reqMap = new mutable.HashMap[SocketAddress, TCPServer.ChannelBuffer]()
 
   private val acceptorThread = new Thread() {
     override def run(): Unit = {
       while (running.get()) {
         checkNewKeys()
+        cleanOldKeys()
       }
     }
   }
@@ -133,7 +136,13 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
     selector.selectedKeys().clear()
   }
 
-  private def handleKey(data: (ChannelBuffer, ClientSocketChannel, Int)): Unit = data match {
+  private def cleanOldKeys(): Unit = {
+    reqMap = reqMap.filter {
+      case (addr, buffer) => !buffer.socket.isClosed
+    }
+  }
+
+  private def handleKey(data: (TCPServer.ChannelBuffer, ClientSocketChannel, Int)): Unit = data match {
     case (channelBuffer, channel, bytesRead) => {
       val channelAction = channelBuffer.consumer.apply(channelBuffer.buffer, bytesRead)
       channelAction.foreach {
@@ -149,7 +158,7 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
     }
   }
 
-  private def acceptOrReadKey(key: ClientSelectionKey): Option[(ChannelBuffer, ClientSocketChannel, Int)] = {
+  private def acceptOrReadKey(key: ClientSelectionKey): Option[(TCPServer.ChannelBuffer, ClientSocketChannel, Int)] = {
     if (key.isAcceptable) {
       val socketChannel =
         clientSocketChannelFactory.apply(key.channel.asInstanceOf[ServerSocketChannel].accept())
@@ -158,7 +167,8 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
     if (key.isReadable) {
       val socketChannel =
         clientSocketChannelFactory.apply(key.channel.asInstanceOf[SocketChannel])
-      val writeSpace = reqMap.getOrElseUpdate(socketChannel.getRemoteAddress, new ChannelBuffer(consumeFactory.apply()))
+      val writeSpace = reqMap.getOrElseUpdate(socketChannel.getRemoteAddress, new TCPServer.ChannelBuffer(
+        consumeFactory.apply(), socketChannel.socket))
       if(!writeSpace.buffer.last.hasRemaining) {
         writeSpace.buffer.append(ByteBuffer.allocate(16))
       }
