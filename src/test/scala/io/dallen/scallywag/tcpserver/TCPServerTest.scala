@@ -1,4 +1,5 @@
-package io.dallen.scallywag.httpserver
+package io.dallen.scallywag.tcpserver
+
 import java.net._
 import java.nio.ByteBuffer
 import java.nio.channels._
@@ -14,7 +15,6 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.util.Success
 
 
 class TCPServerTest extends FlatSpec {
@@ -64,7 +64,6 @@ class TCPServerTest extends FlatSpec {
     when(mockClientChannel.accept(any(), any())).thenAnswer((_: InvocationOnMock) => {
       acceptable = false
       server.stop()
-      println("Stop ", System.currentTimeMillis())
       null
     })
 
@@ -72,7 +71,6 @@ class TCPServerTest extends FlatSpec {
 
     implicit val ec: ExecutionContext = ExecutionContext.global
     val f = Future {
-      println("Start", System.currentTimeMillis())
       server.start()
       server.await()
       true

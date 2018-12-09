@@ -1,15 +1,12 @@
-package io.dallen.scallywag.httpserver
+package io.dallen.scallywag.tcpserver
 
 import java.net.{InetSocketAddress, Socket, SocketAddress}
 import java.nio.ByteBuffer
 import java.nio.channels._
 import java.util.concurrent.atomic.AtomicBoolean
 
-import io.dallen.scallywag.httpserver
-
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-
 
 object TCPServer {
   type TCPConsumer = (ArrayBuffer[ByteBuffer], Int) => Option[(ByteBuffer, Boolean)]
@@ -18,7 +15,7 @@ object TCPServer {
     sc => new TCPServer.ClientSocketChannelImpl(sc)
 
   val simpleClientSelectionKeyFactory: SelectionKey => ClientSelectionKey =
-    sk => new httpserver.TCPServer.ClientSelectionKeyImpl(sk)
+    sk => new TCPServer.ClientSelectionKeyImpl(sk)
 
   class AcceptingSocketChannelImpl(serverSocketChannel: ServerSocketChannel) extends AcceptingSocketChannel {
     override def open(inetSocketAddress: InetSocketAddress, selector: Selector): Unit = {
@@ -55,28 +52,6 @@ object TCPServer {
     val buffer: ArrayBuffer[ByteBuffer] = new ArrayBuffer[ByteBuffer](1)
     buffer.append(ByteBuffer.allocate(16))
   }
-}
-
-trait AcceptingSocketChannel {
-  def open(inetSocketAddress: InetSocketAddress, selector: Selector)
-  def close(): Unit
-}
-
-trait ClientSocketChannel {
-  def accept(block: Boolean, selector: Selector): ClientSocketChannel
-  def getRemoteAddress: SocketAddress
-  def isOpen: Boolean
-  def read(buffer: ByteBuffer): Int
-  def write(buffer: ByteBuffer): Int
-  def close(): Unit
-  def socket: Socket
-}
-
-trait ClientSelectionKey {
-  def isAcceptable: Boolean
-  def isReadable: Boolean
-  def channel: SelectableChannel
-  def selector: Selector
 }
 
 class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketChannel: AcceptingSocketChannel,

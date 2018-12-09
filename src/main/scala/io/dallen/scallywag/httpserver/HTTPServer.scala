@@ -4,6 +4,8 @@ import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.util.regex.Pattern
 
+import io.dallen.scallywag.tcpserver.TCPServer
+
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
