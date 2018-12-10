@@ -2,7 +2,7 @@ package io.dallen.scallywag
 
 import io.dallen.scallywag
 import io.dallen.scallywag.ApplicationServer.Response
-import io.dallen.scallywag.httpserver.{HTTPMethod, HTTPRequest, HTTPResponseCode}
+import io.dallen.scallywag.httpserver.HTTPServer
 
 import scala.collection.mutable
 
@@ -10,21 +10,21 @@ class Router {
 
   var defaultRoute: ApplicationServer.Handler =
     (_: ApplicationServer.Request, res: ApplicationServer.Response) =>
-      res.code = HTTPResponseCode.NOT_FOUND
+      res.code = HTTPServer.ResponseCode.NOT_FOUND
 
-  val routeTable: Map[HTTPMethod, SimpleRouter] = Map[HTTPMethod, SimpleRouter](
-    HTTPMethod.GET -> SimpleRouter(new mutable.HashMap[String, List[ApplicationServer.Handler]]()),
-    HTTPMethod.POST -> SimpleRouter(new mutable.HashMap[String, List[ApplicationServer.Handler]]()),
+  val routeTable: Map[HTTPServer.Method, SimpleRouter] = Map[HTTPServer.Method, SimpleRouter](
+    HTTPServer.Method.GET -> SimpleRouter(new mutable.HashMap[String, List[ApplicationServer.Handler]]()),
+    HTTPServer.Method.POST -> SimpleRouter(new mutable.HashMap[String, List[ApplicationServer.Handler]]()),
   )
 
 
   def get(path: String, handlers: AnyRef*): Router = {
-    registerRoutes(HTTPMethod.GET, path, flattenVarargs(handlers))
+    registerRoutes(HTTPServer.Method.GET, path, flattenVarargs(handlers))
     return this
   }
 
   def post(path: String, handlers: AnyRef*): Router = {
-    registerRoutes(HTTPMethod.POST, path, flattenVarargs(handlers))
+    registerRoutes(HTTPServer.Method.POST, path, flattenVarargs(handlers))
     return this
   }
 
@@ -33,7 +33,7 @@ class Router {
     case r: AnyRef => List(r)
   }
 
-  private def registerRoutes(httpMethod: HTTPMethod, routePattern: String, handlers: List[AnyRef]): Unit = {
+  private def registerRoutes(httpMethod: HTTPServer.Method, routePattern: String, handlers: List[AnyRef]): Unit = {
     // Register simple routes
     routeTable(httpMethod).registerRoute(routePattern, handlers
       .filter(_.isInstanceOf[ApplicationServer.Handler])
@@ -47,7 +47,7 @@ class Router {
       .foreach { case (subpath, subhandlers) => routeTable(httpMethod).registerRoute(routePattern + subpath, subhandlers) }
   }
 
-  def route(httpMethod: HTTPMethod, httpRequest: HTTPRequest): ApplicationServer.Response =
+  def route(httpMethod: HTTPServer.Method, httpRequest: HTTPServer.Request): ApplicationServer.Response =
     routeTable(httpMethod).routeRequest(httpRequest)
 
   case class SimpleRouter(routeTable: mutable.HashMap[String, List[ApplicationServer.Handler]],
@@ -59,13 +59,13 @@ class Router {
       routeTable += (routePattern -> handler)
     }
 
-    def routeRequest(httpRequest: HTTPRequest): Response = {
+    def routeRequest(httpRequest: HTTPServer.Request): Response = {
       val response = new Response(httpRequest.headers)
       internalRouteRequest(httpRequest, response)
       return response
     }
 
-    def internalRouteRequest(httpRequest: HTTPRequest, response: Response): Unit = {
+    def internalRouteRequest(httpRequest: HTTPServer.Request, response: Response): Unit = {
       routeTable.toList
         .map { case (pattern, handlers) => (patternMatches(httpRequest.location, pattern), handlers) }
         .find { case (route, handlers) => route.isDefined }

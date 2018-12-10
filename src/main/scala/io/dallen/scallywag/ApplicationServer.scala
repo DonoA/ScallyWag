@@ -7,7 +7,7 @@ import scala.collection.mutable
 object ApplicationServer {
   type Handler = (ApplicationServer.Request, ApplicationServer.Response) => Unit
 
-  class Request(private val httpRequest: HTTPRequest, val routeParameters: Map[String, String]) {
+  class Request(private val httpRequest: HTTPServer.Request, val routeParameters: Map[String, String]) {
     private val parent = httpRequest
 
     def method: String = parent.method
@@ -19,7 +19,7 @@ object ApplicationServer {
   }
 
   class Response(private val defaultHeaders: Map[String, String]) {
-    var code: HTTPResponseCode = HTTPResponseCode.OK
+    var code: HTTPServer.ResponseCode = HTTPServer.ResponseCode.OK
     var headers: mutable.Map[String, String] = defaultHeaders
         .filter(p => Array("connection").contains(p._1))
         .foldLeft(new mutable.HashMap[String, String]())((map, elem) => {
@@ -54,10 +54,10 @@ class ApplicationServer(port: Int) {
     httpServer.await()
   }
 
-  private def handle(httpRequest: HTTPRequest): HTTPResponse = {
+  private def handle(httpRequest: HTTPServer.Request): HTTPServer.Response = {
     println(s"Request to ${httpRequest.location}")
 
-    val resp = router.route(HTTPMethod.getByName(httpRequest.method), httpRequest)
-    return HTTPResponse(resp.code, resp.headers, resp.body)
+    val resp = router.route(HTTPServer.Method.getByName(httpRequest.method), httpRequest)
+    return HTTPServer.Response(resp.code, resp.headers, resp.body)
   }
 }

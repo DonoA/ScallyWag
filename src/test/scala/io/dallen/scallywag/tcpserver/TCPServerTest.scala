@@ -24,9 +24,7 @@ class TCPServerTest extends FlatSpec {
     val mockSelector = Mockito.mock(classOf[Selector])
     val mockServerSocketChannel = Mockito.mock(classOf[TCPServer.AcceptingSocketChannelImpl])
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
-      return Option.empty
-    }
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
 
     val portToBind = 3000
 
@@ -56,7 +54,7 @@ class TCPServerTest extends FlatSpec {
     when(mockSelector.selectedKeys()).thenAnswer((_: InvocationOnMock) => toReturn)
     when(mockAcceptable.isAcceptable).thenAnswer((_: InvocationOnMock) => acceptable)
     when(mockAcceptable.channel).thenAnswer((_: InvocationOnMock) => channel)
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = Option.empty
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
 
     val server = new TCPServer(3000, () => handler, mockServerSocketChannel, mockSelector, _ => mockClientChannel,
       _ => mockAcceptable)
@@ -113,7 +111,7 @@ class TCPServerTest extends FlatSpec {
       readData = new String(buffers.last.array()).replace("\0", "")
       handlerBytesRead = bytesRead
       server.stop()
-      return Option.empty
+      return None
     }
 
     val handleProducer = Mockito.mock(classOf[() => TCPServer.TCPConsumer])
@@ -181,7 +179,7 @@ class TCPServerTest extends FlatSpec {
       } else {
         server.stop()
       }
-      return Option.empty
+      return None
     }
 
     server = new TCPServer(3000, () => handler, mockServerSocketChannel, mockSelector, _ => mockClientChannel,
@@ -245,9 +243,7 @@ class TCPServerTest extends FlatSpec {
       rawDat.length
     })
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
-      return Some((toWrite, true))
-    }
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = Some((toWrite, true))
 
     val handleProducer = Mockito.mock(classOf[() => TCPServer.TCPConsumer])
     when(handleProducer.apply()).thenAnswer((_: InvocationOnMock) => handler _)
@@ -307,9 +303,7 @@ class TCPServerTest extends FlatSpec {
       "Hello".length
     })
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
-      return Option.empty
-    }
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
 
     val handleProducer = Mockito.mock(classOf[() => TCPServer.TCPConsumer])
     when(handleProducer.apply()).thenAnswer((_: InvocationOnMock) => handler _)
