@@ -1,5 +1,6 @@
 package io.dallen.scallywag.tcpserver
 
+import java.io.{BufferedReader, DataOutputStream, InputStreamReader}
 import java.net._
 import java.nio.ByteBuffer
 import java.nio.channels._
@@ -24,7 +25,6 @@ class TCPServerTest extends FlatSpec {
     val mockSelector = Mockito.mock(classOf[Selector])
     val mockServerSocketChannel = Mockito.mock(classOf[TCPServer.AcceptingSocketChannelImpl])
 
-
     def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
 
     val portToBind = 3000
@@ -32,9 +32,12 @@ class TCPServerTest extends FlatSpec {
     val server = new TCPServer(portToBind, () => handler, mockServerSocketChannel, mockSelector,
       TCPServer.simpleClientSocketChannelFactory, TCPServer.simpleClientSelectionKeyFactory)
 
-    when(mockSelector.selectNow()).thenAnswer((_: InvocationOnMock) => server.stop())
+    when(mockSelector.selectNow()).thenAnswer((_: InvocationOnMock) => {
+      server.stop()
+      0
+    })
 
-    Await.ready(server.start(), Duration(100, "millis"))
+    Await.result(server.start(), Duration(100, "millis"))
 
     verify(mockServerSocketChannel, times(1)).open(new InetSocketAddress(portToBind), mockSelector)
     verify(mockServerSocketChannel, times(1)).close()
@@ -68,7 +71,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockAcceptable)
 
-    Await.ready(server.start(), Duration(100, "millis"))
+    Await.result(server.start(), Duration(100, "millis"))
   }
 
   it should "read data from existing keys" in {
@@ -116,7 +119,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    Await.ready(server.start(), Duration(100, "millis"))
+    Await.result(server.start(), Duration(100, "millis"))
     verify(handleProducer, times(1)).apply()
     assert(readData equals data)
     assert(handlerBytesRead equals data.length)
@@ -174,7 +177,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    Await.ready(server.start(), Duration(100, "millis"))
+    Await.result(server.start(), Duration(100, "millis"))
 
     val (goodAddr, goodBuffer) = savedBuffers(2)
     val (badAddr, badBuffer) = savedBuffers(1)
@@ -233,7 +236,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    Await.ready(server.start(), Duration(100, "millis"))
+    Await.result(server.start(), Duration(100, "millis"))
     verify(mockClientChannel, times(1)).write(toWrite)
     verify(mockClientChannel, times(1)).close()
   }
@@ -286,12 +289,74 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    Await.ready(server.start(), Duration(100, "millis"))
+    Await.result(server.start(), Duration(100, "millis"))
 
     val reqMapField = server.getClass.getDeclaredField("reqMap")
     reqMapField.setAccessible(true)
     val reqMap = reqMapField.get(server).asInstanceOf[mutable.HashMap[SocketAddress, TCPServer.ChannelBuffer]]
     assert(reqMap.isEmpty)
     verify(handleProducer, times(1)).apply()
+  }
+
+  it should "read data from real io ports" in {
+    val data = "Hello World\n"
+    var server: TCPServer = null
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+      assert(new String(buffers.last.array()).replace("\0", "") equals data)
+      server.stop()
+      return None
+    }
+    val port = 3000
+    server = new TCPServer(port, () => handler)
+    val f = server.start()
+
+    val clientSocket = new Socket("localhost", port)
+    val outToServer = new DataOutputStream(clientSocket.getOutputStream)
+    outToServer.write(data.getBytes("utf-8"))
+    Await.result(f, Duration(100, "millis"))
+  }
+
+  it should "write data to real io ports" in {
+    val data = "Hello World\n"
+    var server: TCPServer = null
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+      return Some(ByteBuffer.wrap(data.getBytes("utf-8")), true)
+    }
+    val port = 3000
+    server = new TCPServer(port, () => handler)
+    val f = server.start()
+
+    val clientSocket = new Socket("localhost", port)
+    val outToServer = new DataOutputStream(clientSocket.getOutputStream)
+    val inFromServer = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
+    outToServer.write(" ".getBytes("utf-8"))
+    val serverMessage = inFromServer.readLine() + "\n"
+    server.stop()
+    Await.result(f, Duration(100, "millis"))
+    assert(serverMessage equals data)
+  }
+
+  it should "allocate more buffer space when needed" in {
+    val data = "Hello World\n"
+    var server: TCPServer = null
+    var bufferCleared = false
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+      buffers.clear()
+      bufferCleared = true
+      return Some(ByteBuffer.wrap(data.getBytes("utf-8")), false)
+    }
+    val port = 3000
+    server = new TCPServer(port, () => handler)
+    val f = server.start()
+
+    val clientSocket = new Socket("localhost", port)
+    val outToServer = new DataOutputStream(clientSocket.getOutputStream)
+    val inFromServer = new BufferedReader(new InputStreamReader(clientSocket.getInputStream))
+    outToServer.write(data.getBytes("utf-8"))
+    val _ = inFromServer.readLine() + "\n"
+    assert(bufferCleared)
+    outToServer.write(data.getBytes("utf-8"))
+    server.stop()
+    Await.result(f, Duration(100, "millis"))
   }
 }

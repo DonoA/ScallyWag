@@ -69,9 +69,6 @@ class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServ
     val rawResponse = handler.apply(request)
     rawResponse.headers.put("content-length", rawResponse.body.getBytes.length.toString)
     val keepAlive = !shouldClose(rawResponse)
-    if(keepAlive) {
-      println("Keeping socket open")
-    }
     return (serializeResponse(rawResponse), !keepAlive)
   }
 
