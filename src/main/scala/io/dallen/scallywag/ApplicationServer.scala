@@ -3,6 +3,7 @@ package io.dallen.scallywag
 import io.dallen.scallywag.httpserver._
 
 import scala.collection.mutable
+import scala.concurrent.Future
 
 object ApplicationServer {
   type Handler = (ApplicationServer.Request, ApplicationServer.Response) => Unit
@@ -45,14 +46,9 @@ class ApplicationServer(port: Int) {
     return this
   }
 
-  def start(): ApplicationServer = {
-    httpServer.start()
-    return this
-  }
+  def start(): Future[Unit] = httpServer.start()
 
-  def await(): Unit = {
-    httpServer.await()
-  }
+  def stop(): Unit = httpServer.stop()
 
   private def handle(httpRequest: HTTPServer.Request): HTTPServer.Response = {
     println(s"Request to ${httpRequest.location}")

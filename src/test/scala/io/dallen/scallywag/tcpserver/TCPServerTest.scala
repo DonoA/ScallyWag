@@ -13,8 +13,8 @@ import org.scalatest._
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.Await
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContext, Future}
 
 
 class TCPServerTest extends FlatSpec {
@@ -24,18 +24,19 @@ class TCPServerTest extends FlatSpec {
     val mockSelector = Mockito.mock(classOf[Selector])
     val mockServerSocketChannel = Mockito.mock(classOf[TCPServer.AcceptingSocketChannelImpl])
 
+
     def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
 
     val portToBind = 3000
 
     val server = new TCPServer(portToBind, () => handler, mockServerSocketChannel, mockSelector,
       TCPServer.simpleClientSocketChannelFactory, TCPServer.simpleClientSelectionKeyFactory)
-    server.start()
+
+    when(mockSelector.selectNow()).thenAnswer((_: InvocationOnMock) => server.stop())
+
+    Await.ready(server.start(), Duration(100, "millis"))
 
     verify(mockServerSocketChannel, times(1)).open(new InetSocketAddress(portToBind), mockSelector)
-
-    server.stop()
-
     verify(mockServerSocketChannel, times(1)).close()
   }
 
@@ -67,14 +68,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockAcceptable)
 
-    implicit val ec: ExecutionContext = ExecutionContext.global
-    val f = Future {
-      server.start()
-      server.await()
-      true
-    }
-
-    Await.ready(f, Duration(100, "millis"))
+    Await.ready(server.start(), Duration(100, "millis"))
   }
 
   it should "read data from existing keys" in {
@@ -122,14 +116,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    implicit val ec: ExecutionContext = ExecutionContext.global
-    val f = Future {
-      server.start()
-      server.await()
-      true
-    }
-
-    Await.ready(f, Duration(100, "millis"))
+    Await.ready(server.start(), Duration(100, "millis"))
     verify(handleProducer, times(1)).apply()
     assert(readData equals data)
     assert(handlerBytesRead equals data.length)
@@ -187,14 +174,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    implicit val ec: ExecutionContext = ExecutionContext.global
-    val f = Future {
-      server.start()
-      server.await()
-      true
-    }
-
-    Await.ready(f, Duration(100, "millis"))
+    Await.ready(server.start(), Duration(100, "millis"))
 
     val (goodAddr, goodBuffer) = savedBuffers(2)
     val (badAddr, badBuffer) = savedBuffers(1)
@@ -253,14 +233,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    implicit val ec: ExecutionContext = ExecutionContext.global
-    val f = Future {
-      server.start()
-      server.await()
-      true
-    }
-
-    Await.ready(f, Duration(100, "millis"))
+    Await.ready(server.start(), Duration(100, "millis"))
     verify(mockClientChannel, times(1)).write(toWrite)
     verify(mockClientChannel, times(1)).close()
   }
@@ -313,14 +286,7 @@ class TCPServerTest extends FlatSpec {
 
     toReturn.add(placeholderMockReadable)
 
-    implicit val ec: ExecutionContext = ExecutionContext.global
-    val f = Future {
-      server.start()
-      server.await()
-      true
-    }
-
-    Await.ready(f, Duration(100, "millis"))
+    Await.ready(server.start(), Duration(100, "millis"))
 
     val reqMapField = server.getClass.getDeclaredField("reqMap")
     reqMapField.setAccessible(true)

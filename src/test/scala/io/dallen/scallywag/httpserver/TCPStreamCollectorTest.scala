@@ -7,7 +7,7 @@ import org.scalatest._
 
 import scala.collection.mutable.ArrayBuffer
 
-class TCPStreamCollectorTest extends FlatSpec {
+class TCPStreamCollectorTest extends FlatSpec with Matchers {
 
   it should "Handle empty read cycles" in {
     val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
@@ -198,4 +198,19 @@ class TCPStreamCollectorTest extends FlatSpec {
     assert(collector.workingRequest.isEmpty)
   }
 
+  it should "throw IllegalArgumentException if a malformed HTTP request is passed in" in {
+
+    val collector = new TCPStreamCollector({ req: Request => (Array[Byte](), true)},
+      TCPStreamCollector.StreamState.GatheringHeader)
+
+    val requestData = "this is not an http header\r\n\r\n"
+
+    val buffers = new ArrayBuffer[ByteBuffer]()
+    buffers.append(ByteBuffer.allocate(requestData.length))
+    buffers.last.put(requestData.getBytes("utf-8"))
+
+    a [IllegalArgumentException] should be thrownBy {
+      collector.consume(buffers, requestData.length)
+    }
+  }
 }

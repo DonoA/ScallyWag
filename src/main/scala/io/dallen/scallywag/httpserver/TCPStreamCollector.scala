@@ -55,6 +55,7 @@ class TCPStreamCollector(consumeRequest: Request => (Array[Byte], Boolean),
           totalBytesRead = 0
           bodyLengthTarget = None
           workingRequest = None
+          buffers.clear()
           state = StreamState.GatheringHeader
         }
         return Some(ByteBuffer.wrap(data), close)

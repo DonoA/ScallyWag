@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.{ExecutionContext, Future}
 
 object TCPServer {
   type TCPConsumer = (ArrayBuffer[ByteBuffer], Int) => Option[(ByteBuffer, Boolean)]
@@ -58,18 +59,9 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
                 selector: Selector, clientSocketChannelFactory: SocketChannel => ClientSocketChannel,
                 clientSelectionKeyFactory: SelectionKey => ClientSelectionKey) {
 
-  private val running: AtomicBoolean = new AtomicBoolean(true)
+  private val running: AtomicBoolean = new AtomicBoolean(false)
 
   private var reqMap = new mutable.HashMap[SocketAddress, TCPServer.ChannelBuffer]()
-
-  private val acceptorThread = new Thread() {
-    override def run(): Unit = {
-      while (running.get()) {
-        checkNewKeys()
-        cleanOldKeys()
-      }
-    }
-  }
 
   def this(port: Int, consumeFactory: () => TCPServer.TCPConsumer) {
     this(port,
@@ -83,20 +75,24 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
       TCPServer.simpleClientSelectionKeyFactory)
   }
 
-  def start(): Unit = {
+  def start(): Future[Unit] = {
+    running.set(true)
     socketChannel.open(new InetSocketAddress(port), selector)
-
-    acceptorThread.start()
-  }
-
-  def await(): Unit = {
-    acceptorThread.join()
+    return Future({
+      run()
+    })(ExecutionContext.global)
   }
 
   def stop(): Unit = {
     running.set(false)
-    acceptorThread.interrupt()
     socketChannel.close()
+  }
+
+  private def run(): Unit = {
+    while (running.get()) {
+      checkNewKeys()
+      cleanOldKeys()
+    }
   }
 
   private def checkNewKeys(): Unit = if(selector.selectNow() > 0) {
@@ -144,7 +140,7 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
         clientSocketChannelFactory.apply(key.channel.asInstanceOf[SocketChannel])
       val writeSpace = reqMap.getOrElseUpdate(socketChannel.getRemoteAddress, new TCPServer.ChannelBuffer(
         consumeFactory.apply(), socketChannel.socket))
-      if(!writeSpace.buffer.last.hasRemaining) {
+      if(writeSpace.buffer.isEmpty || !writeSpace.buffer.last.hasRemaining) {
         writeSpace.buffer.append(ByteBuffer.allocate(16))
       }
       val bytesRead = socketChannel.read(writeSpace.buffer.last)

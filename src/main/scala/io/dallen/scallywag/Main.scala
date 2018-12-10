@@ -1,6 +1,12 @@
 package io.dallen.scallywag
 
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration.Duration
+import scala.util.{Failure, Success}
+
 object Main {
+
+  var server: ApplicationServer = null
 
   def indexGet(req: ApplicationServer.Request, res: ApplicationServer.Response): Unit = {
     println(res.headers)
@@ -21,14 +27,13 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    new ApplicationServer(8080)
+    server = new ApplicationServer(8080)
       .get("/index", indexGet _)
       .get("/:name", new Router()
         .get("/hello", otherHello _)
         .get("/bye", otherBye _))
       .post("/", postData _)
-      .start()
-      .await()
+    Await.result(server.start(), Duration.Inf)
   }
 }
 

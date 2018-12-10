@@ -7,6 +7,7 @@ import io.dallen.scallywag.httpserver.HTTPServer.{Request, Response}
 import io.dallen.scallywag.tcpserver.TCPServer
 
 import scala.collection.mutable
+import scala.concurrent.Future
 
 object HTTPServer {
   val requestPattern: Pattern = Pattern.compile("^(?<method>\\w+)\\s" +
@@ -55,9 +56,7 @@ object HTTPServer {
 
 class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServer) {
 
-  def start(): Unit = tcpServer.start()
-
-  def await(): Unit = tcpServer.await()
+  def start(): Future[Unit] = tcpServer.start()
 
   def stop(): Unit = tcpServer.stop()
 
@@ -76,19 +75,17 @@ class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServ
     return (serializeResponse(rawResponse), !keepAlive)
   }
 
-  private def shouldClose(req: Response, header: String = "Connection"): Boolean =
+  private def shouldClose(req: Response, header: String = "connection"): Boolean =
     req.headers.getOrElse(header, () => "close").equals("close")
 
   private def serializeResponse(httpResponse: Response): Array[Byte] = {
     val code = httpResponse.code.toString
-    val headers = httpResponse.headers.map { case (name, value) => s"$name: $value" }.mkString("\r\n")
+    val headers = httpResponse.headers.map { case (name, value) => s"$name: $value" }.mkString("\n")
     val body = httpResponse.body
     return s""" |HTTP/1.1 $code
                 |$headers
                 |
-                |$body
-                |
-              """
+                |$body"""
       .stripMargin
       .replace("\n", "\r\n")
       .getBytes(HTTPServer.UTF8)
