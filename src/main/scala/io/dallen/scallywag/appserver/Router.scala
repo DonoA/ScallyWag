@@ -1,7 +1,5 @@
-package io.dallen.scallywag
+package io.dallen.scallywag.appserver
 
-import io.dallen.scallywag
-import io.dallen.scallywag.ApplicationServer.Response
 import io.dallen.scallywag.httpserver.HTTPServer
 
 import scala.collection.mutable
@@ -59,19 +57,19 @@ class Router {
       routeTable += (routePattern -> handler)
     }
 
-    def routeRequest(httpRequest: HTTPServer.Request): Response = {
-      val response = new Response(httpRequest.headers)
+    def routeRequest(httpRequest: HTTPServer.Request): ApplicationServer.Response = {
+      val response = new ApplicationServer.Response(httpRequest.headers)
       internalRouteRequest(httpRequest, response)
       return response
     }
 
-    def internalRouteRequest(httpRequest: HTTPServer.Request, response: Response): Unit = {
+    def internalRouteRequest(httpRequest: HTTPServer.Request, response: ApplicationServer.Response): Unit = {
       routeTable.toList
         .map { case (pattern, handlers) => (patternMatches(httpRequest.location, pattern), handlers) }
         .find { case (route, handlers) => route.isDefined }
         .foreach { case (route, handlers) => handlers
           .foreach { routeExecutor => routeExecutor.apply(
-            new scallywag.ApplicationServer.Request(httpRequest, route.get), response) }}
+            new ApplicationServer.Request(httpRequest, route.get), response) }}
     }
 
     private def patternMatches(test: String, pattern: String): Option[Map[String, String]] = {

@@ -1,4 +1,4 @@
-package io.dallen.scallywag
+package io.dallen.scallywag.appserver
 
 import io.dallen.scallywag.httpserver._
 
@@ -35,6 +35,8 @@ class ApplicationServer(port: Int) {
   private val httpServer = new HTTPServer(port, handle)
 
   var router = new Router()
+
+  def getPort: Int = port
 
   def get(path: String, handlers: AnyRef*): ApplicationServer = {
     router.get(path, handlers.toList)

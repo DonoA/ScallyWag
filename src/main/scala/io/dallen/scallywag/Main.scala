@@ -1,12 +1,13 @@
 package io.dallen.scallywag
 
-import scala.concurrent.{Await, Future}
+import io.dallen.scallywag.appserver.{ApplicationServer, Router}
+
+import scala.concurrent.Await
 import scala.concurrent.duration.Duration
-import scala.util.{Failure, Success}
 
 object Main {
 
-  var server: ApplicationServer = null
+  var server: ApplicationServer = _
 
   def indexGet(req: ApplicationServer.Request, res: ApplicationServer.Response): Unit = {
     println(res.headers)
@@ -33,7 +34,9 @@ object Main {
         .get("/hello", otherHello _)
         .get("/bye", otherBye _))
       .post("/", postData _)
-    Await.result(server.start(), Duration.Inf)
+    val f = server.start()
+    println("Server started on", server.getPort)
+    Await.result(f, Duration.Inf)
   }
 }
 
