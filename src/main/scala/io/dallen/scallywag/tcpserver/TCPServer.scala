@@ -10,7 +10,9 @@ import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{ExecutionContext, Future}
 
 object TCPServer {
-  type TCPConsumer = (ArrayBuffer[ByteBuffer], Int) => Option[(ByteBuffer, Boolean)]
+  case class TCPResponse(content: ByteBuffer, close: Boolean)
+
+  type TCPConsumer = (ArrayBuffer[ByteBuffer], Int) => Option[TCPResponse]
 
   val simpleClientSocketChannelFactory: SocketChannel => ClientSocketChannel =
     sc => new TCPServer.ClientSocketChannelImpl(sc)
@@ -117,7 +119,7 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
     case (channelBuffer, channel, bytesRead) => {
       val channelAction = channelBuffer.consumer.apply(channelBuffer.buffer, bytesRead)
       channelAction.foreach {
-        case (response, close) => writeMessage(channel, response, close)
+        case TCPServer.TCPResponse(response, close) => writeMessage(channel, response, close)
       }
     }
   }

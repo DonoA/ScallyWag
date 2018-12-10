@@ -4,6 +4,7 @@ import java.nio.ByteBuffer
 
 import io.dallen.scallywag.httpserver.HTTPServer.Request
 import io.dallen.scallywag.httpserver.TCPStreamCollector.StreamState
+import io.dallen.scallywag.tcpserver.TCPServer
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -12,22 +13,31 @@ object TCPStreamCollector {
     type State = Value
     val GatheringHeader, GatheringBody, Complete = Value
   }
+
+  case class RawRequest(method: String,
+                        location: String,
+                        proto: String,
+                        headers: Map[String, String],
+                        urlParameters: Map[String, String],
+                        var body: Array[Byte])
+
+  case class RawResponse(body: Array[Byte], close: Boolean)
 }
 
-class TCPStreamCollector(consumeRequest: Request => (Array[Byte], Boolean),
+class TCPStreamCollector(consumeRequest: TCPStreamCollector.RawRequest => TCPStreamCollector.RawResponse,
                          var state: StreamState.State) {
 
   var totalBytesRead = 0
 
   var bodyLengthTarget: Option[Int] = None
 
-  var workingRequest: Option[Request] = None
+  var workingRequest: Option[TCPStreamCollector.RawRequest] = None
 
-  def this(consumeRequest: Request => (Array[Byte], Boolean)) {
+  def this(consumeRequest: TCPStreamCollector.RawRequest => TCPStreamCollector.RawResponse) {
     this(consumeRequest, StreamState.GatheringHeader)
   }
 
-  def consume(buffers: ArrayBuffer[ByteBuffer], newRead: Int): Option[(ByteBuffer, Boolean)] = {
+  def consume(buffers: ArrayBuffer[ByteBuffer], newRead: Int): Option[TCPServer.TCPResponse] = {
     if(newRead <= 0) {
       return None
     }
@@ -47,8 +57,8 @@ class TCPStreamCollector(consumeRequest: Request => (Array[Byte], Boolean),
     if(state == StreamState.GatheringBody) {
       val body = bodyProcessor(buffers, readBytes)
       if(body.isDefined) {
-        workingRequest.get.body = RawBody(new String(body.get, HTTPServer.UTF8))
-        val (data, close) = consumeRequest.apply(workingRequest.get)
+        workingRequest.get.body = body.get
+        val TCPStreamCollector.RawResponse(data, close) = consumeRequest.apply(workingRequest.get)
         if(close) {
           state = StreamState.Complete
         } else {
@@ -58,7 +68,7 @@ class TCPStreamCollector(consumeRequest: Request => (Array[Byte], Boolean),
           buffers.clear()
           state = StreamState.GatheringHeader
         }
-        return Some(ByteBuffer.wrap(data), close)
+        return Some(TCPServer.TCPResponse(ByteBuffer.wrap(data), close))
       }
     }
     return None
@@ -162,7 +172,7 @@ class TCPStreamCollector(consumeRequest: Request => (Array[Byte], Boolean),
     return patternMatches
   }
 
-  private def parseHeader(stringMessage: String): Request = {
+  private def parseHeader(stringMessage: String): TCPStreamCollector.RawRequest = {
     val regexMatch = HTTPServer.requestPattern.matcher(stringMessage)
 
     if (!regexMatch.find()) {
@@ -195,6 +205,7 @@ class TCPStreamCollector(consumeRequest: Request => (Array[Byte], Boolean),
       }
 
 
-    return Request(method, path, httpVersion, headers.getOrElse(Map()), urlParams, RawBody(""))
+    return TCPStreamCollector.RawRequest(method, path, httpVersion, headers.getOrElse(Map[String, String]()),
+      urlParams, null)
   }
 }

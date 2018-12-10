@@ -25,7 +25,7 @@ class TCPServerTest extends FlatSpec {
     val mockSelector = Mockito.mock(classOf[Selector])
     val mockServerSocketChannel = Mockito.mock(classOf[TCPServer.AcceptingSocketChannelImpl])
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = None
 
     val portToBind = 3000
 
@@ -58,7 +58,7 @@ class TCPServerTest extends FlatSpec {
     when(mockSelector.selectedKeys()).thenAnswer((_: InvocationOnMock) => toReturn)
     when(mockAcceptable.isAcceptable).thenAnswer((_: InvocationOnMock) => acceptable)
     when(mockAcceptable.channel).thenAnswer((_: InvocationOnMock) => channel)
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = None
 
     val server = new TCPServer(3000, () => handler, mockServerSocketChannel, mockSelector, _ => mockClientChannel,
       _ => mockAcceptable)
@@ -158,7 +158,7 @@ class TCPServerTest extends FlatSpec {
 
     var server: TCPServer = null
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = {
       savedBuffers.append((currentAddress, buffers))
       if(messages.hasNext) {
         toReturn.clear()
@@ -301,7 +301,7 @@ class TCPServerTest extends FlatSpec {
   it should "read data from real io ports" in {
     val data = "Hello World\n"
     var server: TCPServer = null
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = {
       assert(new String(buffers.last.array()).replace("\0", "") equals data)
       server.stop()
       return None
@@ -319,8 +319,8 @@ class TCPServerTest extends FlatSpec {
   it should "write data to real io ports" in {
     val data = "Hello World\n"
     var server: TCPServer = null
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
-      return Some(ByteBuffer.wrap(data.getBytes("utf-8")), true)
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = {
+      return Some(TCPServer.TCPResponse(ByteBuffer.wrap(data.getBytes("utf-8")), true))
     }
     val port = 3000
     server = new TCPServer(port, () => handler)
@@ -340,10 +340,10 @@ class TCPServerTest extends FlatSpec {
     val data = "Hello World\n"
     var server: TCPServer = null
     var bufferCleared = false
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = {
       buffers.clear()
       bufferCleared = true
-      return Some(ByteBuffer.wrap(data.getBytes("utf-8")), false)
+      return Some(TCPServer.TCPResponse(ByteBuffer.wrap(data.getBytes("utf-8")), false))
     }
     val port = 3000
     server = new TCPServer(port, () => handler)

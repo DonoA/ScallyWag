@@ -10,7 +10,7 @@ import scala.collection.mutable.ArrayBuffer
 class TCPStreamCollectorTest extends FlatSpec with Matchers {
 
   it should "Handle empty read cycles" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
     val buffers = new ArrayBuffer[ByteBuffer]()
     collector.consume(buffers, 0)
     assert(collector.state equals TCPStreamCollector.StreamState.GatheringHeader)
@@ -18,7 +18,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "Handle any sized ByteBuffer" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
     val buffers = new ArrayBuffer[ByteBuffer]()
     val data = "HelloWorld"
     buffers.append(ByteBuffer.allocate(16))
@@ -37,7 +37,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "Only change from GatheringHeader state when \\r\\n\\r\\n encountered" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
 
     val noEndData = "GET /index.html HTTP/1.1\r\ncontent-length: 1"
     val endChars = "\r\n\r\n"
@@ -59,7 +59,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "Change from GatheringHeader state when \\r\\n\\r\\n encountered in several reads" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
 
     val noEndData = "GET /index.html HTTP/1.1\r\ncontent-length: 1\r\n"
     val endChars = "\r\n"
@@ -82,7 +82,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "Change from GatheringHeader state when \\r\\n\\r\\n encountered in several buffers" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
 
     val noEndData = "GET /index.html HTTP/1.1\r\ncontent-length: 1\r\n"
     val endChars = "\r\n"
@@ -106,7 +106,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "keep data after \\r\\n\\r\\n is encountered" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
 
     val noEndData = "GET /index.html HTTP/1.1\r\ncontent-length: 10\r\n"
     val extraChars = "extradata"
@@ -135,7 +135,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "assume content length if none is given" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringHeader)
 
     val noEndData = "GET /index.html HTTP/1.1\r\n\r\n"
 
@@ -151,9 +151,9 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "change from GatheringBody when target body length has been reached" in {
-    val collector = new TCPStreamCollector(_ => (Array[Byte](), true), TCPStreamCollector.StreamState.GatheringBody)
+    val collector = new TCPStreamCollector(_ => TCPStreamCollector.RawResponse(Array[Byte](), true), TCPStreamCollector.StreamState.GatheringBody)
     collector.bodyLengthTarget = Some(10)
-    collector.workingRequest = Some(Request("GET", "/index.html", "1.1", Map(), Map(), RawBody("")))
+    collector.workingRequest = Some(TCPStreamCollector.RawRequest("GET", "/index.html", "1.1", Map(), Map(), null))
     val hello = "hello"
     val world = "world"
     val cutOff = "extras"
@@ -177,11 +177,11 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
   }
 
   it should "reset if socket is not closed" in {
-    var savedRequest: Request = null
+    var savedRequest: TCPStreamCollector.RawRequest = null
 
-    val collector = new TCPStreamCollector({ req: Request =>
+    val collector = new TCPStreamCollector({ req: TCPStreamCollector.RawRequest =>
       savedRequest = req
-      (Array[Byte](), false)
+      TCPStreamCollector.RawResponse(Array[Byte](), false)
     }, TCPStreamCollector.StreamState.GatheringHeader)
 
     val noEndData = "GET /index.html HTTP/1.1\r\n\r\n"
@@ -200,7 +200,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
 
   it should "throw IllegalArgumentException if a malformed HTTP request is passed in" in {
 
-    val collector = new TCPStreamCollector({ req: Request => (Array[Byte](), true)},
+    val collector = new TCPStreamCollector({ _ => TCPStreamCollector.RawResponse(Array[Byte](), true)},
       TCPStreamCollector.StreamState.GatheringHeader)
 
     val requestData = "this is not an http header\r\n\r\n"

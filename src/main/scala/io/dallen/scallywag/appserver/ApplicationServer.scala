@@ -11,7 +11,7 @@ object ApplicationServer {
   class Request(private val httpRequest: HTTPServer.Request, val routeParameters: Map[String, String]) {
     private val parent = httpRequest
 
-    def method: String = parent.method
+    def method: HTTPServer.Method = parent.method
     def location: String = parent.location
     def proto: String = parent.proto
     def headers: Map[String, String] = parent.headers
@@ -55,7 +55,7 @@ class ApplicationServer(port: Int) {
   private def handle(httpRequest: HTTPServer.Request): HTTPServer.Response = {
     println(s"Request to ${httpRequest.location}")
 
-    val resp = router.route(HTTPServer.Method.getByName(httpRequest.method), httpRequest)
+    val resp = router.route(httpRequest.method, httpRequest)
     return HTTPServer.Response(resp.code, resp.headers, resp.body)
   }
 }

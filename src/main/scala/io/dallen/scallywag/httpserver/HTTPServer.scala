@@ -18,16 +18,14 @@ object HTTPServer {
   val UTF8: Charset = Charset.forName("UTF-8")
   val ISO88591: Charset = Charset.forName("ISO-8859-1")
 
-  case class Request(
-                      method: String,
+  case class Request(method: HTTPServer.Method,
                       location: String,
                       proto: String,
                       headers: Map[String, String],
                       urlParameters: Map[String, String],
                       var body: RequestBody)
 
-  case class Response(
-                       var code: ResponseCode,
+  case class Response(var code: ResponseCode,
                        var headers: mutable.Map[String, String],
                        var body: String)
 
@@ -65,11 +63,19 @@ class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServ
     tcpServer = new TCPServer(port, () => new TCPStreamCollector(consumeRequest).consume _)
   }
 
-  private def consumeRequest(request: Request): (Array[Byte], Boolean) = {
+  private def consumeRequest(rawReq: TCPStreamCollector.RawRequest): TCPStreamCollector.RawResponse = {
+    val request = HTTPServer.Request(
+      HTTPServer.Method.getByName(rawReq.method),
+      rawReq.location,
+      rawReq.proto,
+      rawReq.headers,
+      rawReq.urlParameters,
+      RawBody(new String(rawReq.body, HTTPServer.UTF8))
+    )
     val rawResponse = handler.apply(request)
     rawResponse.headers.put("content-length", rawResponse.body.getBytes.length.toString)
     val keepAlive = !shouldClose(rawResponse)
-    return (serializeResponse(rawResponse), !keepAlive)
+    return TCPStreamCollector.RawResponse(serializeResponse(rawResponse), !keepAlive)
   }
 
   private def shouldClose(req: Response, header: String = "connection"): Boolean =
