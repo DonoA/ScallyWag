@@ -173,7 +173,7 @@ class TCPStreamCollectorTest extends FlatSpec with Matchers {
 
     assert(collector.state equals TCPStreamCollector.StreamState.Complete)
     assert(collector.totalBytesRead.equals(hello.length + world.length + cutOff.length))
-    assert(collector.workingRequest.get.body.asInstanceOf[RawBody].data.equals(hello + world))
+    assert(new String(collector.workingRequest.get.body, HTTPServer.UTF8).equals(hello + world))
   }
 
   it should "reset if socket is not closed" in {
