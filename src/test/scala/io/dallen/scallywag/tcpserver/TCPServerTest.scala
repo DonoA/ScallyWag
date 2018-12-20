@@ -226,7 +226,8 @@ class TCPServerTest extends FlatSpec {
       rawDat.length
     })
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = Some((toWrite, true))
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] =
+      Some(TCPServer.TCPResponse(toWrite, true))
 
     val handleProducer = Mockito.mock(classOf[() => TCPServer.TCPConsumer])
     when(handleProducer.apply()).thenAnswer((_: InvocationOnMock) => handler _)
