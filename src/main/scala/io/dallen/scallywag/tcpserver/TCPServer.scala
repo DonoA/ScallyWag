@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 
 object TCPServer {
   case class TCPResponse(content: ByteBuffer, close: Boolean)
@@ -77,12 +77,14 @@ class TCPServer(port: Int, consumeFactory: () => TCPServer.TCPConsumer, socketCh
       TCPServer.simpleClientSelectionKeyFactory)
   }
 
-  def start(): Future[Unit] = {
+  def start(): Future[Unit] = this.start(ExecutionContext.global)
+
+  def start(executionContextExecutor: ExecutionContextExecutor): Future[Unit] = {
     running.set(true)
     socketChannel.open(new InetSocketAddress(port), selector)
     return Future({
       run()
-    })(ExecutionContext.global)
+    })(executionContextExecutor)
   }
 
   def stop(): Unit = {

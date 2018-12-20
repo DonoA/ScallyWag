@@ -104,7 +104,7 @@ class TCPServerTest extends FlatSpec {
     var readData: String = null
     var handlerBytesRead: Int = -1
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = {
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = {
       readData = new String(buffers.last.array()).replace("\0", "")
       handlerBytesRead = bytesRead
       server.stop()
@@ -280,7 +280,7 @@ class TCPServerTest extends FlatSpec {
       "Hello".length
     })
 
-    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[(ByteBuffer, Boolean)] = None
+    def handler(buffers: ArrayBuffer[ByteBuffer], bytesRead: Int): Option[TCPServer.TCPResponse] = None
 
     val handleProducer = Mockito.mock(classOf[() => TCPServer.TCPConsumer])
     when(handleProducer.apply()).thenAnswer((_: InvocationOnMock) => handler _)
