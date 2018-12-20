@@ -62,20 +62,44 @@ class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServ
     this(port, handler, null)
     tcpServer = new TCPServer(port, () => new TCPStreamCollector(consumeRequest).consume _)
   }
+  private def parseBody(body: Array[Byte], rawReqType: String): RequestBody = rawReqType match {
+    case "plain/text" => StringBody(new String(body, HTTPServer.UTF8))
+    case "application/x-www-form-urlencoded" =>
+      FormBody(new String(body, HTTPServer.UTF8)
+        .split("&")
+        .map(field => field.split("="))
+        .map { case Array(data_name, data_value) => (data_name, data_value) }
+        .toMap)
+    case a if a.contains("multipart/form-data") => {
+      val bound = a.split("; ")(1).split("=")(1)
+      new String(body, HTTPServer.UTF8)
+        .split(bound)
+        .map(seg => seg.replace(bound, ""))
+        .foreach(seg => {
+          println(seg)
+        })
+      RawBody(body)
+    }
+    case _ => RawBody(body)
+  }
 
   private def consumeRequest(rawReq: TCPStreamCollector.RawRequest): TCPStreamCollector.RawResponse = {
+    val body: RequestBody = parseBody(rawReq.body, rawReq.headers.getOrElse("content-type", "plain/text"))
+
     val request = HTTPServer.Request(
       HTTPServer.Method.getByName(rawReq.method),
       rawReq.location,
       rawReq.proto,
       rawReq.headers,
       rawReq.urlParameters,
-      RawBody(new String(rawReq.body, HTTPServer.UTF8))
+      body
     )
     val rawResponse = handler.apply(request)
     rawResponse.headers.put("content-length", rawResponse.body.getBytes.length.toString)
     val keepAlive = !shouldClose(rawResponse)
-    return TCPStreamCollector.RawResponse(serializeResponse(rawResponse), !keepAlive)
+    val bytesResponse = serializeResponse(rawResponse)
+    println(new String(bytesResponse))
+    return TCPStreamCollector.RawResponse(bytesResponse, !keepAlive)
   }
 
   private def shouldClose(req: Response, header: String = "connection"): Boolean =

@@ -57,6 +57,7 @@ class TCPStreamCollector(consumeRequest: TCPStreamCollector.RawRequest => TCPStr
     if(state == StreamState.GatheringBody) {
       val body = bodyProcessor(buffers, readBytes)
       if(body.isDefined) {
+        println(s"Body:\n${new String(body.get)}")
         workingRequest.get.body = body.get
         val TCPStreamCollector.RawResponse(data, close) = consumeRequest.apply(workingRequest.get)
         if(close) {
