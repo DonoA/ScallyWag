@@ -7,6 +7,7 @@ import io.dallen.scallywag.httpserver.HTTPServer.{Request, Response}
 import io.dallen.scallywag.tcpserver.TCPServer
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.Future
 
 object HTTPServer {
@@ -50,6 +51,8 @@ object HTTPServer {
     val NOT_FOUND = ResponseCode(404, "NOT FOUND")
     val ERROR = ResponseCode(500, "SERVER ERROR")
   }
+
+  class MalformedRequestException(msg: String) extends Exception
 }
 
 class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServer) {
@@ -62,25 +65,22 @@ class HTTPServer(port: Int, handler: Request => Response, var tcpServer: TCPServ
     this(port, handler, null)
     tcpServer = new TCPServer(port, () => new TCPStreamCollector(consumeRequest).consume _)
   }
+
   private def parseBody(body: Array[Byte], rawReqType: String): RequestBody = rawReqType match {
-    case "plain/text" => StringBody(new String(body, HTTPServer.UTF8))
+    case "plain/text" => RequestBody.StringBody(new String(body, HTTPServer.UTF8))
     case "application/x-www-form-urlencoded" =>
-      FormBody(new String(body, HTTPServer.UTF8)
+      RequestBody.FormBody(new String(body, HTTPServer.UTF8)
         .split("&")
         .map(field => field.split("="))
-        .map { case Array(data_name, data_value) => (data_name, data_value) }
+        .map { case Array(data_name, data_value) => (data_name, ArrayBuffer[RequestBody.FormData](RequestBody.FormString(data_value))) }
         .toMap)
     case a if a.contains("multipart/form-data") => {
-      val bound = a.split("; ")(1).split("=")(1)
-      new String(body, HTTPServer.UTF8)
-        .split(bound)
-        .map(seg => seg.replace(bound, ""))
-        .foreach(seg => {
-          println(seg)
-        })
-      RawBody(body)
+      val boundBytes = a.split("; ")(1).split("=")(1).getBytes(HTTPServer.UTF8)
+      val fieldParser = new FormFieldParser(body, boundBytes)
+      fieldParser.parse()
+      RequestBody.FormBody(fieldParser.asFormData())
     }
-    case _ => RawBody(body)
+    case _ => RequestBody.RawBody(body)
   }
 
   private def consumeRequest(rawReq: TCPStreamCollector.RawRequest): TCPStreamCollector.RawResponse = {

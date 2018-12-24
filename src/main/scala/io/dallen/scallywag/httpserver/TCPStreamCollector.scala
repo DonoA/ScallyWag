@@ -2,7 +2,6 @@ package io.dallen.scallywag.httpserver
 
 import java.nio.ByteBuffer
 
-import io.dallen.scallywag.httpserver.HTTPServer.Request
 import io.dallen.scallywag.httpserver.TCPStreamCollector.StreamState
 import io.dallen.scallywag.tcpserver.TCPServer
 
@@ -177,7 +176,7 @@ class TCPStreamCollector(consumeRequest: TCPStreamCollector.RawRequest => TCPStr
     val regexMatch = HTTPServer.requestPattern.matcher(stringMessage)
 
     if (!regexMatch.find()) {
-      throw new IllegalArgumentException("Data must represent an HTTP request")
+      throw new HTTPServer.MalformedRequestException("Malformed header in request")
     }
 
     val (method, path, httpVersion) =

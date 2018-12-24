@@ -86,7 +86,7 @@ class HTTPServerTest extends FlatSpec {
     assert(savedReq.headers("host") equals "localhost:3000")
     assert(savedReq.urlParameters("param1") equals "true")
     assert(savedReq.urlParameters("param2") equals "hello")
-    assert(savedReq.body.isInstanceOf[RawBody])
-    assert(savedReq.body.asInstanceOf[RawBody].data.isEmpty)
+    assert(savedReq.body.isInstanceOf[RequestBody.RawBody])
+    assert(savedReq.body.asInstanceOf[RequestBody.RawBody].data.isEmpty)
   }
 }

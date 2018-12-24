@@ -11,7 +11,7 @@ object Main {
 
   def postData(req: ApplicationServer.Request, res: ApplicationServer.Response): Unit = {
     println(req.headers)
-    res.body = s"Got post data with ${req.body.toString} and ${req.cookie("lijitcookie")}"
+    res.body = s"Got post data with ${req.body.toString}"
   }
 
   def main(args: Array[String]): Unit = {
