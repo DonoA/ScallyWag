@@ -35,10 +35,12 @@ object HTTPServer {
   object Method {
     val GET = Method("GET")
     val POST = Method("POST")
+    val ANY = Method("ANY")
 
     def getByName(name: String): Method = name match {
       case "GET" => Method.GET
       case "POST" => Method.POST
+      case _ => Method.ANY
     }
   }
 

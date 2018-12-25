@@ -68,13 +68,23 @@ class ApplicationServer(port: Int) {
 
   def getPort: Int = port
 
-  def get(path: String, handlers: AnyRef*): ApplicationServer = {
+  def get(path: String, handlers: ApplicationServer.Handler*): ApplicationServer = {
     router.get(path, handlers.toList)
     return this
   }
 
-  def post(path: String, handlers: AnyRef*): ApplicationServer = {
+  def post(path: String, handlers: ApplicationServer.Handler*): ApplicationServer = {
     router.post(path, handlers.toList)
+    return this
+  }
+
+  def use(path: String, handlers: AnyRef*): ApplicationServer = {
+    router.use(path, handlers)
+    return this
+  }
+
+  def use(handlers: ApplicationServer.Handler*): ApplicationServer = {
+    router.use("/", handlers)
     return this
   }
 
@@ -84,7 +94,7 @@ class ApplicationServer(port: Int) {
 
   def getRouteMap: String =
     router.routeTable.map { case (Method(method), simpleRouter) =>
-      val routeList = simpleRouter.routeTable.map { case (path, handlerList) =>
+      val routeList = simpleRouter.routeList.map { case (path, handlerList) =>
         val handlerChain = handlerList.map { _.toString() }.mkString("->")
         s"\t$path => $handlerChain"
       }.mkString("\n")
@@ -97,6 +107,7 @@ class ApplicationServer(port: Int) {
     println(s"Request to ${httpRequest.location}")
 
     val resp = router.route(httpRequest.method, httpRequest)
+
     resp.headers.put("connection", if(resp.close) "close" else "keep-alive")
     return HTTPServer.Response(resp.code, resp.headers, resp.body)
   }
