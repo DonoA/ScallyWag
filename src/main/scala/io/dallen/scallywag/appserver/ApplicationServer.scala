@@ -84,7 +84,7 @@ class ApplicationServer(port: Int) {
   }
 
   def use(handlers: ApplicationServer.Handler*): ApplicationServer = {
-    router.use("/", handlers)
+    router.use(handlers.toList)
     return this
   }
 

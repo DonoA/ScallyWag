@@ -9,18 +9,23 @@ object Main {
 
   var server: ApplicationServer = _
 
+  def getData(req: ApplicationServer.Request, res: ApplicationServer.Response): Unit = {
+    println("get data", req.getContext("data"))
+  }
+
   def postData(req: ApplicationServer.Request, res: ApplicationServer.Response): Unit = {
-    println("post data")
+    println("post data", req.getContext("data"))
   }
 
   def enrichData(req: ApplicationServer.Request, res: ApplicationServer.Response): Unit = {
-    println("Enrich")
+    req.addContext("data", "lookup on " + req.routeParameters("id"))
   }
 
   def main(args: Array[String]): Unit = {
     server = new ApplicationServer(8080)
-      .use("/data", enrichData _, new Router()
-        .get("/anything", postData _))
+      .use("/:id/data", enrichData _, new Router()
+        .get("/anything", getData _)
+        .post("/post_dat", postData _))
     println(server.getRouteMap)
     val f = server.start()
     println("Server started on", server.getPort)
